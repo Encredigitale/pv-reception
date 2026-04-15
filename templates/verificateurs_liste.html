@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Liste admin des vérificateurs</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 30px;
+            background: #f7f7f7;
+        }
+        .container {
+            max-width: 1400px;
+            background: white;
+            padding: 25px;
+            border-radius: 10px;
+            margin: auto;
+            box-shadow: 0 0 10px rgba(0,0,0,0.08);
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+            font-size: 14px;
+        }
+        th, td {
+            border: 1px solid #ccc;
+            padding: 10px;
+            text-align: left;
+            vertical-align: top;
+        }
+        th {
+            background: #efefef;
+        }
+        a {
+            text-decoration: none;
+            color: #1f4e79;
+            font-weight: bold;
+        }
+        .top-links {
+            margin-bottom: 20px;
+        }
+        .badge {
+            display: inline-block;
+            padding: 6px 10px;
+            border-radius: 999px;
+            color: white;
+            font-weight: bold;
+            font-size: 12px;
+        }
+        .green { background: #2e7d32; }
+        .orange { background: #ef6c00; }
+        .red { background: #c62828; }
+        .grey { background: #757575; }
+        .warning-box {
+            margin-bottom: 20px;
+            padding: 12px;
+            background: #fff4e5;
+            border-left: 4px solid #ef6c00;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Liste admin des vérificateurs</h1>
+
+        <div class="warning-box">
+            Cette page doit rester réservée à l’administration.
+            Elle ne doit pas être diffusée aux vérificateurs.
+        </div>
+
+        <div class="top-links">
+            <p><a href="/verificateurs/nouveau">Ajouter un vérificateur</a></p>
+            <p><a href="/">Retour au formulaire PV</a></p>
+        </div>
+
+        <table>
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Nom</th>
+                    <th>Prénom</th>
+                    <th>Email</th>
+                    <th>Téléphone</th>
+                    <th>N° diplôme</th>
+                    <th>Date obtention</th>
+                    <th>Date échéance</th>
+                    <th>Statut diplôme</th>
+                    <th>Carte recto</th>
+                    <th>Carte verso</th>
+                    <th>Diplôme</th>
+                    <th>Actif</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for v in verificateurs %}
+                <tr>
+                    <td>{{ v["id"] }}</td>
+                    <td>{{ v["nom"] }}</td>
+                    <td>{{ v["prenom"] }}</td>
+                    <td>{{ v["email"] }}</td>
+                    <td>{{ v["telephone"] }}</td>
+                    <td>{{ v["numero_diplome"] }}</td>
+                    <td>{{ v["date_obtention_diplome"] }}</td>
+                    <td>{{ v["date_echeance_diplome"] }}</td>
+                    <td>
+                        <span class="badge {{ v['statut_color'] }}">
+                            {{ v["statut_label"] }}
+                        </span>
+                    </td>
+                    <td>
+                        {% if v["fichier_carte_recto"] %}
+                            <a href="/{{ v['fichier_carte_recto'] }}" target="_blank">Ouvrir</a>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if v["fichier_carte_verso"] %}
+                            <a href="/{{ v['fichier_carte_verso'] }}" target="_blank">Ouvrir</a>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if v["fichier_diplome"] %}
+                            <a href="/{{ v['fichier_diplome'] }}" target="_blank">Ouvrir</a>
+                        {% endif %}
+                    </td>
+                    <td>{{ "Oui" if v["actif"] == 1 else "Non" }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</body>
+</html>

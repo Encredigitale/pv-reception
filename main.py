@@ -1,26 +1,201 @@
-from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse
-from fastapi.templating import Jinja2Templates
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, date
+import json
+import base64
+import shutil
+from uuid import uuid4
+from copy import copy
+import win32com.client
+
+from fastapi import FastAPI, Request, Form, UploadFile, File
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+from starlette.middleware.sessions import SessionMiddleware
+
 from openpyxl import load_workbook
 from openpyxl.drawing.image import Image
 from openpyxl.styles import Font, Alignment
-import json
-import base64
+
+from database import init_db, insert_verificateur, get_all_verificateurs, search_verificateurs
+
+
+ADMIN_PASSWORD = "Omnilux2026"
 
 app = FastAPI()
+app.add_middleware(SessionMiddleware, secret_key="SUPER_SECRET_KEY_CHANGE_MOI")
 
-templates = Jinja2Templates(directory="templates")
+BASE_DIR = Path(__file__).resolve().parent
 
-DATA_DIR = Path("data")
+TEMPLATES_DIR = BASE_DIR / "templates"
+DATA_DIR = BASE_DIR / "data"
+OUTPUT_DIR = BASE_DIR / "output"
+SIGNATURES_DIR = BASE_DIR / "signatures"
+
+UPLOADS_DIR = BASE_DIR / "uploads"
+CARTES_DIR = UPLOADS_DIR / "cartes_identite"
+DIPLOMES_DIR = UPLOADS_DIR / "diplomes"
+
+TEMPLATES_DIR.mkdir(exist_ok=True)
 DATA_DIR.mkdir(exist_ok=True)
-
-SIGNATURES_DIR = Path("signatures")
-SIGNATURES_DIR.mkdir(exist_ok=True)
-
-OUTPUT_DIR = Path("output")
 OUTPUT_DIR.mkdir(exist_ok=True)
+SIGNATURES_DIR.mkdir(exist_ok=True)
+UPLOADS_DIR.mkdir(exist_ok=True)
+CARTES_DIR.mkdir(exist_ok=True)
+DIPLOMES_DIR.mkdir(exist_ok=True)
+
+templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+
+app.mount("/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")
+app.mount("/output", StaticFiles(directory=str(OUTPUT_DIR)), name="output")
+
+@app.on_event("startup")
+def startup_event():
+    init_db()
+
+
+@app.get("/test")
+def test():
+    return {"status": "ok"}
+
+
+def save_upload_file(upload_file: UploadFile, destination_dir: Path) -> str:
+    extension = Path(upload_file.filename).suffix.lower()
+    unique_filename = f"{uuid4().hex}{extension}"
+    destination = destination_dir / unique_filename
+
+    with destination.open("wb") as buffer:
+        shutil.copyfileobj(upload_file.file, buffer)
+
+    relative_path = destination.relative_to(BASE_DIR)
+    return str(relative_path).replace("\\", "/")
+
+
+def save_signature_from_base64(signature_data_url: str) -> Path | None:
+    if not signature_data_url:
+        return None
+
+    if not signature_data_url.startswith("data:image"):
+        return None
+
+    try:
+        _, encoded = signature_data_url.split(",", 1)
+        image_data = base64.b64decode(encoded)
+        filename = f"signature_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+        filepath = SIGNATURES_DIR / filename
+
+        with open(filepath, "wb") as f:
+            f.write(image_data)
+
+        return filepath
+    except Exception as e:
+        print("Erreur sauvegarde signature :", e)
+        return None
+
+
+def export_excel_to_pdf(excel_path: Path, pdf_path: Path):
+    excel = None
+    workbook = None
+
+    try:
+        excel = win32com.client.DispatchEx("Excel.Application")
+        excel.Visible = False
+        excel.DisplayAlerts = False
+
+        workbook = excel.Workbooks.Open(str(excel_path.resolve()))
+
+        # 1er onglet uniquement
+        ws = workbook.Worksheets(1)
+
+        # Zone d'impression : ajuste si besoin
+        ws.PageSetup.PrintArea = "$A$1:$AR$133"
+
+        # Mise en page
+        ws.PageSetup.Zoom = False
+        ws.PageSetup.FitToPagesWide = 1
+        ws.PageSetup.FitToPagesTall = 2
+
+        # Centrage
+        ws.PageSetup.CenterHorizontally = True
+        ws.PageSetup.CenterVertically = True
+
+        # Marges réduites
+        ws.PageSetup.LeftMargin = excel.CentimetersToPoints(0.7)
+        ws.PageSetup.RightMargin = excel.CentimetersToPoints(0.7)
+        ws.PageSetup.TopMargin = excel.CentimetersToPoints(0.7)
+        ws.PageSetup.BottomMargin = excel.CentimetersToPoints(0.7)
+
+        # Orientation paysage
+        ws.PageSetup.Orientation = 2  # xlLandscape
+
+        # Export SEULEMENT de la feuille 1
+        ws.ExportAsFixedFormat(0, str(pdf_path.resolve()))
+
+    finally:
+        if workbook is not None:
+            workbook.Close(False)
+        if excel is not None:
+            excel.Quit()
+
+
+def write_merged_cell(ws, cell_ref: str, value, font_size: int | None = None, bold: bool | None = None):
+    target_cell = ws[cell_ref]
+
+    for merged_range in ws.merged_cells.ranges:
+        if cell_ref in merged_range:
+            real_ref = merged_range.start_cell.coordinate
+            print(f"{cell_ref} appartient à la fusion {merged_range} -> écriture dans {real_ref}")
+            target_cell = ws[real_ref]
+            break
+
+    target_cell.value = value
+
+    if font_size is not None or bold is not None:
+        new_font = copy(target_cell.font)
+
+        if font_size is not None:
+            new_font.sz = font_size
+
+        if bold is not None:
+            new_font.b = bold
+
+        target_cell.font = new_font
+
+    return target_cell
+
+
+def get_diplome_status(date_echeance_str: str | None):
+    if not date_echeance_str:
+        return {
+            "label": "Date manquante",
+            "color": "grey"
+        }
+
+    try:
+        echeance = datetime.strptime(date_echeance_str, "%Y-%m-%d").date()
+    except ValueError:
+        return {
+            "label": "Date invalide",
+            "color": "grey"
+        }
+
+    today = date.today()
+    delta_days = (echeance - today).days
+
+    if delta_days < 0:
+        return {
+            "label": "Expiré",
+            "color": "red"
+        }
+    if delta_days <= 183:
+        return {
+            "label": "Renouvellement < 6 mois",
+            "color": "orange"
+        }
+    return {
+        "label": "Valide",
+        "color": "green"
+    }
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -32,225 +207,297 @@ def home(request: Request):
     )
 
 
-def set_value_safe(ws, cell, value):
-    target = cell
-    for merged_range in ws.merged_cells.ranges:
-        if cell in merged_range:
-            target = merged_range.start_cell.coordinate
-            print(f"{cell} appartient à la fusion {merged_range} -> écriture dans {target}")
-            break
-    ws[target] = value
-    return target
-
-
-def put_x(ws, cell):
-    target = set_value_safe(ws, cell, "X")
-    ws[target].font = Font(bold=True)
-
-
-def set_check_status(ws, row, value):
-    if value == "oui":
-        put_x(ws, f"AP{row}")
-    elif value == "non":
-        put_x(ws, f"AQ{row}")
-    elif value == "na":
-        put_x(ws, f"AR{row}")
-
-
 @app.post("/api/pv")
-async def receive_pv(request: Request):
-    data = await request.json()
+async def create_pv(request: Request):
+    try:
+        data = await request.json()
 
-    print("===== DONNÉES REÇUES =====")
-    print(data)
-    print("==========================")
-    print("type_facade =", data.get("type_facade"))
-    print("type_bache =", data.get("type_bache"))
-    print("type_escaliers =", data.get("type_escaliers"))
-    print("echafaudages_speciaux =", data.get("echafaudages_speciaux"))
-    print("classe_charge =", data.get("classe_charge"))
-    print("classe_largeur =", data.get("classe_largeur"))
-    print("largeur_libre =", data.get("largeur_libre"))
-    print("restriction_utilisation =", data.get("restriction_utilisation"))
-    print("q_apparentement_intacts =", data.get("q_apparentement_intacts"))
-    print("q_resistance_support =", data.get("q_resistance_support"))
-    print("q_verins_reglage =", data.get("q_verins_reglage"))
-    print("q_ancrages_nombre =", data.get("q_ancrages_nombre"))
-    print("q_niveaux_recouverts =", data.get("q_niveaux_recouverts"))
-    print("q_dispositifs_securite =", data.get("q_dispositifs_securite"))
-    print("q_aux_acces =", data.get("q_aux_acces"))
-    print("q_clotures =", data.get("q_clotures"))
-    print("observations =", data.get("observations"))
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    numero_document = timestamp.split("_")[1]
-    now = datetime.now()
-    date_validation = now.strftime("%d/%m/%Y")
-    heure_validation = now.strftime("%H:%M")
-    # 1) Sauvegarde JSON
-    json_path = DATA_DIR / f"pv_{timestamp}.json"
-    with open(json_path, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+        print("===== DONNÉES REÇUES =====")
+        print(data)
+        print("==========================")
 
-    # 2) Sauvegarde signature PNG
-    signature_data = data.get("signature", "")
-    png_path = None
+        json_filename = f"pv_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        json_path = DATA_DIR / json_filename
+        with open(json_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
 
-    if signature_data.startswith("data:image/png;base64,"):
-        base64_data = signature_data.split(",", 1)[1]
-        image_bytes = base64.b64decode(base64_data)
+        excel_template = TEMPLATES_DIR / "PV_MODELE.xlsx"
+        if not excel_template.exists():
+            return {
+                "success": False,
+                "error": f"Modèle Excel introuvable : {excel_template}"
+            }
 
-        png_path = SIGNATURES_DIR / f"signature_{timestamp}.png"
-        with open(png_path, "wb") as f:
-            f.write(image_bytes)
+        wb = load_workbook(excel_template)
+        ws = wb.active
+        # Génération numéro PV (simple et propre)
+        numero_pv = datetime.now().strftime("%Y%m%d%H%M%S")
 
-    # 3) Génération Excel
-    template_path = Path("templates") / "PV_MODELE.xlsx"
-    output_path = OUTPUT_DIR / f"pv_{timestamp}.xlsx"
+        titre_pv = f"PV RÉCEPTION D’ÉCHAFAUDAGE N°{numero_pv}"
 
-    wb = load_workbook(template_path)
-    ws = wb.active
+        write_merged_cell(ws, "A1", titre_pv, font_size=16, bold=True)
+        print("Feuilles du classeur :", wb.sheetnames)
+        print("Feuille active :", ws.title)
 
-    print("Feuilles du classeur :", wb.sheetnames)
-    print("Feuille active :", ws.title)
+        # Champs principaux
+        write_merged_cell(ws, "B19", data.get("chantier", ""))
+        write_merged_cell(ws, "B24", data.get("adresse", ""))
+        write_merged_cell(ws, "AP11", data.get("date_montage", ""))
 
-    # 4) Titre document
-    ws["A1"] = f"PV RÉCEPTION D’ÉCHAFAUDAGE N°{numero_document}"
-    ws["A1"].font = Font(name="Calibri", size=20, bold=True)
-    ws["A1"].alignment = Alignment(horizontal="center", vertical="center")
+        # Observations
+        observations = data.get("observations", "")
+        if observations:
+            cell_obs = write_merged_cell(ws, "A61", observations, font_size=18)
+            cell_obs.alignment = Alignment(horizontal="left", vertical="top", wrap_text=True)
 
-    # 5) Bloc haut du document
-    ws["B4"] = data.get("chantier", "")
-    ws["B5"] = data.get("adresse", "")
-    ws["B6"] = data.get("date_montage", "")
+        # Vérificateur
+        verificateur_nom_complet = data.get("verificateur_nom", "").strip()
+        verificateur_numero_diplome = data.get("verificateur_numero_diplome", "").strip()
+        verificateur_lien_diplome = data.get("verificateur_lien_diplome", "").strip()
 
-    ws["B8"] = data.get("maitre_ouvrage", "")
-    ws["B9"] = data.get("contact_mo", "")
-    ws["T9"] = data.get("tel_mo", "")
+        print("verificateur_nom_complet =", verificateur_nom_complet)
+        print("verificateur_numero_diplome =", verificateur_numero_diplome)
+        print("verificateur_lien_diplome =", verificateur_lien_diplome)
 
-    ws["B11"] = data.get("entreprise_montage", "")
-    ws["B12"] = data.get("contact_montage", "")
-    ws["T12"] = data.get("tel_montage", "")
+        if verificateur_nom_complet:
+            write_merged_cell(ws, "AC35", verificateur_nom_complet)
 
-    ws["B13"] = data.get("entreprise_utilisatrice", "")
-    ws["B14"] = data.get("contact_utilisatrice", "")
-    ws["T14"] = data.get("tel_utilisatrice", "")
+        if verificateur_numero_diplome:
+            cell_diplome = write_merged_cell(ws, "AP35", verificateur_numero_diplome)
 
-    # 6) Types d’échafaudage
-    if data.get("type_facade"):
-        put_x(ws, "A16")
+            if verificateur_lien_diplome:
+                full_path = (BASE_DIR / verificateur_lien_diplome.strip("/")).resolve()
 
-    if data.get("type_recueil"):
-        put_x(ws, "A17")
+                print("Chemin absolu final :", full_path)
 
-    if data.get("type_filet"):
-        put_x(ws, "A18")
+                if full_path.exists():
+                    excel_path = str(full_path)
+                    print("Lien envoyé à Excel :", excel_path)
+                    cell_diplome.hyperlink = excel_path
+                    cell_diplome.value = verificateur_numero_diplome
+                    cell_diplome.style = "Hyperlink"
+                else:
+                    print("❌ FICHIER INTROUVABLE :", full_path)
 
-    if data.get("type_bache"):
-        put_x(ws, "H16")
+        # Date / heure auto
+        now = datetime.now()
+        write_merged_cell(ws, "AC37", now.strftime("%d/%m/%Y"))
+        write_merged_cell(ws, "AP37", now.strftime("%H:%M"))
 
-    if data.get("type_plateforme"):
-        put_x(ws, "H17")
+        # Signature
+        signature_data = data.get("signature", "")
+        signature_path = save_signature_from_base64(signature_data)
+        print("signature_path =", signature_path)
 
-    if data.get("type_escaliers"):
-        put_x(ws, "H18")
+        if signature_path and signature_path.exists():
+            try:
+                img = Image(str(signature_path))
+                img.width = 220
+                img.height = 90
+                ws.add_image(img, "AC39")
+            except Exception as e:
+                print("Erreur insertion signature Excel :", e)
 
-    if data.get("type_toit"):
-        put_x(ws, "O16")
+        # Sauvegarde Excel
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        excel_output_name = f"pv_{timestamp}.xlsx"
+        excel_output_path = OUTPUT_DIR / excel_output_name
+        # Mise en page du 1er onglet
+        ws.print_area = "A1:AR61"
+        ws.page_setup.orientation = "landscape"
+        ws.page_setup.fitToWidth = 1
+        ws.page_setup.fitToHeight = 2
+        ws.sheet_properties.pageSetUpPr.fitToPage = True
 
-    if data.get("type_toiture"):
-        put_x(ws, "O17")
+        ws.page_margins.left = 0.25
+        ws.page_margins.right = 0.25
+        ws.page_margins.top = 0.25
+        ws.page_margins.bottom = 0.25
 
-    # 7) Echafaudages spéciaux
-    set_value_safe(ws, "B19", data.get("echafaudages_speciaux", ""))
+        ws.print_options.horizontalCentered = True
+        ws.print_options.verticalCentered = True
+        wb.save(excel_output_path)
 
-    # 8) Classe de charge
-    classe_charge = data.get("classe_charge", "")
+        print(f"Chemin de sauvegarde Excel = {excel_output_path}")
+        print("Fichier Excel sauvegardé OK")
 
-    if classe_charge == "150":
-        put_x(ws, "D21")
-    elif classe_charge == "200":
-        put_x(ws, "I21")
-    elif classe_charge == "300":
-        put_x(ws, "N21")
-    elif classe_charge == "450":
-        put_x(ws, "T21")
-    elif classe_charge == "600":
-        put_x(ws, "T22")
+        # Export PDF
+        pdf_output_name = f"pv_{timestamp}.pdf"
+        pdf_output_path = OUTPUT_DIR / pdf_output_name
 
-    # 9) Classe de largeur
-    classe_largeur = data.get("classe_largeur", "")
+        try:
+            export_excel_to_pdf(excel_output_path, pdf_output_path)
+            print(f"PDF sauvegardé OK : {pdf_output_path}")
+        except Exception as e:
+            print("Erreur export PDF :", e)
+            pdf_output_path = None
 
-    if classe_largeur == "W06":
-        put_x(ws, "H23")
-    elif classe_largeur == "W09":
-        put_x(ws, "N23")
-    elif classe_largeur == "W":
-        put_x(ws, "T23")
-        set_value_safe(ws, "V23", data.get("largeur_libre", ""))
+        return {
+            "success": True,
+            "message": "PV généré avec succès",
+            "excel_file": str(excel_output_path).replace("\\", "/"),
+            "pdf_file": str(pdf_output_path).replace("\\", "/") if pdf_output_path else None,
+            "json_file": str(json_path).replace("\\", "/")
+        }
 
-    # 10) Restriction d’utilisation
-    set_value_safe(ws, "B24", data.get("restriction_utilisation", ""))
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return {
+            "success": False,
+            "error": str(e)
+        }
 
-    # 11) Liste de contrôle
-    set_check_status(ws, 5,  data.get("q_apparentement_intacts", ""))
-    set_check_status(ws, 6,  data.get("q_resistance_support", ""))
-    set_check_status(ws, 7,  data.get("q_verins_reglage", ""))
-    set_check_status(ws, 8,  data.get("q_contreventements", ""))
-    set_check_status(ws, 9,  data.get("q_traverses_longitudinales", ""))
-    set_check_status(ws, 10, data.get("q_poutres_treillis", ""))
 
-    # Ancrages - NOMBRE
-    set_value_safe(ws, "AP11", data.get("q_ancrages_nombre", ""))
+@app.get("/verificateurs/nouveau", response_class=HTMLResponse)
+def form_verificateur(request: Request):
+    return templates.TemplateResponse(
+        request=request,
+        name="verificateur_form.html",
+        context={"request": request}
+    )
 
-    set_check_status(ws, 12, data.get("q_niveaux_recouverts", ""))
-    set_check_status(ws, 13, data.get("q_planchers_compris", ""))
-    set_check_status(ws, 14, data.get("q_au_niveau_des_angles", ""))
-    set_check_status(ws, 15, data.get("q_madriers", ""))
-    set_check_status(ws, 16, data.get("q_ouvertures", ""))
-    set_check_status(ws, 17, data.get("q_dispositifs_securite", ""))
-    set_check_status(ws, 18, data.get("q_distance_mur", ""))
-    set_check_status(ws, 19, data.get("q_garde_corps_interieur", ""))
-    set_check_status(ws, 20, data.get("q_montees_acces", ""))
-    set_check_status(ws, 21, data.get("q_tour_escaliers", ""))
-    set_check_status(ws, 22, data.get("q_echelle_appui", ""))
-    set_check_status(ws, 23, data.get("q_exigences_recueil", ""))
-    set_check_status(ws, 24, data.get("q_conduites_tension", ""))
-    set_check_status(ws, 25, data.get("q_ecran_protection", ""))
-    set_check_status(ws, 26, data.get("q_toit_protection_ctrl", ""))
-    set_check_status(ws, 27, data.get("q_securite_circulation", ""))
-    set_check_status(ws, 28, data.get("q_aux_acces", ""))
-    set_check_status(ws, 29, data.get("q_clotures", ""))
-    # 12) Type d’entreprise (AB33:AB34 fusionnées)
-    type_entreprise = data.get("type_entreprise", "")
-    if type_entreprise == "montage":
-        set_value_safe(ws, "AB33", "Entreprise de montage")
-    elif type_entreprise == "propre":
-        set_value_safe(ws, "AB33", "Entreprise de montage pour usage propre")
-        # 13) Observations (A61:AR137 fusionnées)
-    ws["A61"] = data.get("observations", "")
-    ws["A61"].font = Font(name="Calibri", size=18)
-    ws["A61"].alignment = Alignment(horizontal="left", vertical="top", wrap_text=True)
-       
-        # Vérificateur + date/heure automatiques
-    ws["AC35"] = data.get("verificateur_nom", "")
-    ws["AC37"] = date_validation
-    ws["AP37"] = heure_validation
-       
-        # 14) Signature
-    if png_path and png_path.exists():
-        img = Image(str(png_path))
-        img.width = 200
-        img.height = 40
-        ws.add_image(img, "AC38")
 
-    print("Chemin de sauvegarde Excel =", output_path)
-    wb.save(output_path)
-    print("Fichier Excel sauvegardé OK")
+@app.post("/verificateurs/nouveau", response_class=HTMLResponse)
+async def create_verificateur(
+    request: Request,
+    nom: str = Form(...),
+    prenom: str = Form(...),
+    email: str = Form(...),
+    telephone: str = Form(""),
+    numero_diplome: str = Form(...),
+    date_obtention_diplome: str = Form(...),
+    date_echeance_diplome: str = Form(...),
+    carte_recto: UploadFile = File(...),
+    carte_verso: UploadFile = File(...),
+    diplome: UploadFile = File(...)
+):
+    fichier_carte_recto = save_upload_file(carte_recto, CARTES_DIR)
+    fichier_carte_verso = save_upload_file(carte_verso, CARTES_DIR)
+    fichier_diplome = save_upload_file(diplome, DIPLOMES_DIR)
 
-    return {
-        "status": "ok",
-        "message": "PV reçu",
-        "saved_json": str(json_path),
-        "saved_signature": str(png_path) if png_path else None,
-        "saved_excel": str(output_path)
-    }
+    insert_verificateur(
+        nom=nom.strip(),
+        prenom=prenom.strip(),
+        email=email.strip(),
+        telephone=telephone.strip(),
+        numero_diplome=numero_diplome.strip(),
+        date_obtention_diplome=date_obtention_diplome.strip(),
+        date_echeance_diplome=date_echeance_diplome.strip(),
+        fichier_carte_recto=fichier_carte_recto,
+        fichier_carte_verso=fichier_carte_verso,
+        fichier_diplome=fichier_diplome
+    )
+
+    statut = get_diplome_status(date_echeance_diplome)
+
+    return templates.TemplateResponse(
+        request=request,
+        name="verificateur_success.html",
+        context={
+            "request": request,
+            "nom": nom,
+            "prenom": prenom,
+            "email": email,
+            "telephone": telephone,
+            "numero_diplome": numero_diplome,
+            "date_obtention_diplome": date_obtention_diplome,
+            "date_echeance_diplome": date_echeance_diplome,
+            "statut_label": statut["label"],
+            "statut_color": statut["color"]
+        }
+    )
+
+
+@app.get("/admin/login", response_class=HTMLResponse)
+def admin_login_form(request: Request):
+    return templates.TemplateResponse(
+        request=request,
+        name="admin_login.html",
+        context={"request": request}
+    )
+
+
+@app.post("/admin/login", response_class=HTMLResponse)
+async def admin_login(request: Request, password: str = Form(...)):
+    if password == ADMIN_PASSWORD:
+        request.session["is_admin"] = True
+        return RedirectResponse("/admin/verificateurs", status_code=303)
+
+    return templates.TemplateResponse(
+        request=request,
+        name="admin_login.html",
+        context={
+            "request": request,
+            "error": "Mot de passe incorrect"
+        }
+    )
+
+
+@app.get("/admin/logout")
+def admin_logout(request: Request):
+    request.session.clear()
+    return RedirectResponse("/admin/login", status_code=303)
+
+
+@app.get("/admin/verificateurs", response_class=HTMLResponse)
+def liste_verificateurs(request: Request):
+    if not request.session.get("is_admin"):
+        return RedirectResponse("/admin/login", status_code=303)
+
+    verificateurs_raw = get_all_verificateurs()
+    verificateurs = []
+
+    for v in verificateurs_raw:
+        statut = get_diplome_status(v["date_echeance_diplome"])
+        verificateurs.append({
+            "id": v["id"],
+            "nom": v["nom"],
+            "prenom": v["prenom"],
+            "email": v["email"],
+            "telephone": v["telephone"],
+            "numero_diplome": v["numero_diplome"],
+            "date_obtention_diplome": v["date_obtention_diplome"],
+            "date_echeance_diplome": v["date_echeance_diplome"],
+            "fichier_carte_recto": v["fichier_carte_recto"],
+            "fichier_carte_verso": v["fichier_carte_verso"],
+            "fichier_diplome": v["fichier_diplome"],
+            "actif": v["actif"],
+            "statut_label": statut["label"],
+            "statut_color": statut["color"]
+        })
+
+    return templates.TemplateResponse(
+        request=request,
+        name="verificateurs_liste.html",
+        context={
+            "request": request,
+            "verificateurs": verificateurs
+        }
+    )
+
+
+@app.get("/api/verificateurs")
+def api_verificateurs(q: str = ""):
+    verificateurs_raw = search_verificateurs(q)
+    results = []
+
+    for v in verificateurs_raw:
+        statut = get_diplome_status(v["date_echeance_diplome"])
+
+        results.append({
+            "id": v["id"],
+            "nom": v["nom"],
+            "prenom": v["prenom"],
+            "nom_complet": f'{v["nom"]} {v["prenom"]}',
+            "email": v["email"],
+            "telephone": v["telephone"],
+            "numero_diplome": v["numero_diplome"],
+            "date_obtention_diplome": v["date_obtention_diplome"],
+            "date_echeance_diplome": v["date_echeance_diplome"],
+            "fichier_diplome": f'/{v["fichier_diplome"]}' if v["fichier_diplome"] else "",
+            "statut_label": statut["label"],
+            "statut_color": statut["color"]
+        })
+
+    return JSONResponse(content=results)

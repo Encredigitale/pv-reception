@@ -175,12 +175,26 @@
     .grey {
       background: #757575;
     }
+
+    .json-preview {
+      margin-top: 16px;
+      background: #111;
+      color: #0f0;
+      padding: 12px;
+      border-radius: 8px;
+      font-size: 12px;
+      white-space: pre-wrap;
+      word-break: break-word;
+      max-height: 300px;
+      overflow: auto;
+      display: none;
+    }
   </style>
 </head>
 <body>
   <div class="container">
     <h1>PV de réception d’échafaudage</h1>
-    <p>Formulaire de saisie et signature</p>
+    <p>Formulaire du vérificateur</p>
 
     <form id="pvForm">
       <label for="chantier">Nom du chantier</label>
@@ -507,7 +521,10 @@
       <canvas id="signatureCanvas"></canvas>
 
       <button type="button" class="secondary-btn" id="clearBtn">Effacer la signature</button>
+      <button type="button" class="secondary-btn" id="previewJsonBtn" style="display:none;">Vérifier le JSON</button>
       <button type="submit">Valider</button>
+
+      <div id="jsonPreview" class="json-preview"></div>
 
       <input type="hidden" id="verificateur_id" name="verificateur_id">
       <input type="hidden" id="verificateur_prenom" name="verificateur_prenom">
@@ -525,6 +542,8 @@
     const form = document.getElementById("pvForm");
     const canvas = document.getElementById("signatureCanvas");
     const clearBtn = document.getElementById("clearBtn");
+    const previewJsonBtn = document.getElementById("previewJsonBtn");
+    const jsonPreview = document.getElementById("jsonPreview");
     const ctx = canvas.getContext("2d");
 
     function resizeCanvas() {
@@ -696,25 +715,8 @@
       }
     });
 
-    form.addEventListener("submit", async function(e) {
-      e.preventDefault();
-
-      if (!selectedVerificateur) {
-        alert("Veuillez sélectionner un vérificateur dans la liste proposée.");
-        return;
-      }
-
-      if (selectedVerificateur.statut_color === "red") {
-        alert("Le diplôme du vérificateur est expiré. Validation du PV impossible.");
-        return;
-      }
-
-      if (selectedVerificateur.statut_color === "orange") {
-        const ok = confirm("Attention : le diplôme du vérificateur expire dans moins de 6 mois. Voulez-vous continuer ?");
-        if (!ok) return;
-      }
-
-      const data = {
+    function buildPayload() {
+      return {
         chantier: document.getElementById("chantier").value,
         adresse: document.getElementById("adresse").value,
         date_montage: document.getElementById("date_montage").value,
@@ -787,10 +789,37 @@
 
         signature: canvas.toDataURL("image/png")
       };
+    }
+
+    previewJsonBtn.addEventListener("click", function() {
+      const data = buildPayload();
+      jsonPreview.style.display = "block";
+      jsonPreview.textContent = JSON.stringify(data, null, 2);
+    });
+
+    form.addEventListener("submit", async function(e) {
+      e.preventDefault();
+
+      if (!selectedVerificateur) {
+        alert("Veuillez sélectionner un vérificateur dans la liste proposée.");
+        return;
+      }
+
+      if (selectedVerificateur.statut_color === "red") {
+        alert("Le diplôme du vérificateur est expiré. Validation du PV impossible.");
+        return;
+      }
+
+      if (selectedVerificateur.statut_color === "orange") {
+        const ok = confirm("Attention : le diplôme du vérificateur expire dans moins de 6 mois. Voulez-vous continuer ?");
+        if (!ok) return;
+      }
+
+      const data = buildPayload();
 
       console.log("DONNEES ENVOYEES", data);
 
-           try {
+      try {
         const response = await fetch("/api/pv", {
           method: "POST",
           headers: {
@@ -810,7 +839,8 @@
         alert("PV généré avec succès !");
 
         if (result.pdf_file) {
-          window.open("/" + result.pdf_file, "_blank");
+          const pdfUrl = `${window.location.origin}${result.pdf_file}`;
+          window.open(pdfUrl, "_blank");
         }
       } catch (error) {
         alert("Erreur lors de l'envoi");

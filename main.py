@@ -62,6 +62,11 @@ CLIENT_SIGNATURE_CELL = "AC43"
 # ---- Type d'entreprise
 TYPE_ENTREPRISE_TEXT_CELL = "AB33"
 
+# ---- Observations (nouveau modèle après suppression des lignes 45 à 57)
+OBSERVATIONS_CELL = "A48"
+PRINT_AREA = "$A$1:$AR$124"
+PAGE_BREAK_ROW = 45
+
 ATTENTE_FILL = PatternFill(fill_type="solid", fgColor="FF4D4D")
 ATTENTE_FONT = Font(name="Arial", size=9, bold=True, color="FFFFFF")
 ATTENTE_ALIGNMENT = Alignment(horizontal="center", vertical="center", wrap_text=True)
@@ -217,22 +222,22 @@ def save_signature_from_base64(signature_data_url: str) -> Path | None:
         return None
 
 
-def save_base64_signature_to_temp_png(
-    signature_b64: str,
-    output_path: Path,
-    max_width: int = 110,
-    max_height: int = 28
-) -> Path:
+def save_base64_signature_to_temp_png(signature_b64: str, output_path: Path) -> Path:
     image_data = decode_base64_image(signature_b64)
     if not image_data:
         raise ValueError("Signature vide ou invalide")
 
     image = PILImage.open(io.BytesIO(image_data)).convert("RGBA")
+
+    # fond blanc
     background = PILImage.new("RGBA", image.size, (255, 255, 255, 255))
     image = PILImage.alpha_composite(background, image).convert("RGB")
-    image.thumbnail((max_width, max_height))
+
+    # 👉 NE PAS REDUIRE L'IMAGE
     image.save(output_path, format="PNG")
+
     return output_path
+
 
 
 def insert_signature_in_cell(ws, cell_address: str, image_path: Path, width: int = 105, height: int = 24):
@@ -297,12 +302,15 @@ def insert_signature_fit_merged_area(ws, cell_address: str, image_path: Path, pa
     max_width = max(20, box_width - (padding_px * 2))
     max_height = max(20, box_height - (padding_px * 2))
 
-    pil_img = PILImage.open(image_path)
-    img_width, img_height = pil_img.size
+    with PILImage.open(image_path) as pil_img:
+        img_width, img_height = pil_img.size
 
     ratio = min(max_width / img_width, max_height / img_height)
     final_width = max(1, int(img_width * ratio))
     final_height = max(1, int(img_height * ratio))
+
+    offset_x = int((box_width - final_width) / 2)
+    offset_y = int((box_height - final_height) / 2)
 
     xl_img = XLImage(str(image_path))
     xl_img.width = final_width
@@ -310,16 +318,10 @@ def insert_signature_fit_merged_area(ws, cell_address: str, image_path: Path, pa
 
     marker = AnchorMarker(
         col=min_col - 1,
-        row=min_row - 1,)
-    offset_x = int((box_width - final_width) / 2)
-    offset_y = int((box_height - final_height) / 2)
-
-    marker = AnchorMarker(
-        col=min_col - 1,
         row=min_row - 1,
         colOff=pixels_to_EMU(offset_x),
         rowOff=pixels_to_EMU(offset_y),
-        )
+    )
 
     size = XDRPositiveSize2D(
         cx=pixels_to_EMU(final_width),
@@ -333,61 +335,160 @@ def insert_signature_fit_merged_area(ws, cell_address: str, image_path: Path, pa
 # =========================================================
 # HELPERS - EXCEL / PDF
 # =========================================================
+def write_excel_cell(ws, cell_ref: str, value):
+    cell = ws.Range(cell_ref)
+
+    try:
+        if cell.MergeCells:
+            cell = cell.MergeArea.Cells(1, 1)
+    except Exception:
+        pass
+
+    cell.Value = value if value is not None else ""
+
+
+def mark_x_com(ws, cell_ref: str):
+    cell = ws.Range(cell_ref)
+    cell.Value = "X"
+    cell.HorizontalAlignment = -4108  # xlCenter
+    cell.VerticalAlignment = -4108    # xlCenter
+    cell.Font.Bold = True
+    cell.Font.Size = 12
+
+
+def fill_simple_text_fields_com(ws, dossier_data: dict):
+    chantier = dossier_data.get("chantier", "")
+    adresse = dossier_data.get("adresse", "")
+    date_montage = dossier_data.get("date_montage", "")
+
+    maitre_ouvrage = dossier_data.get("maitre_ouvrage", "")
+    contact_mo = dossier_data.get("contact_mo", "")
+    tel_mo = dossier_data.get("tel_mo", "")
+
+    entreprise_montage = dossier_data.get("entreprise_montage", "")
+    contact_montage = dossier_data.get("contact_montage", "")
+    tel_montage = dossier_data.get("tel_montage", "")
+
+    entreprise_utilisatrice = dossier_data.get("entreprise_utilisatrice", "")
+    contact_utilisatrice = dossier_data.get("contact_utilisatrice", "")
+    tel_utilisatrice = dossier_data.get("tel_utilisatrice", "")
+
+    echafaudages_speciaux = dossier_data.get("echafaudages_speciaux", "")
+    restriction_utilisation = dossier_data.get("restriction_utilisation", "")
+
+    # Bloc chantier / localisation / date de montage
+    bloc_chantier = "\n".join([
+        str(chantier or ""),
+        str(adresse or ""),
+        str(date_montage or ""),
+    ]).strip()
+    ws.Range("B4").Value = bloc_chantier
+
+    # Bloc maître d’ouvrage + contact
+    bloc_mo = "\n".join([
+        str(maitre_ouvrage or ""),
+        str(contact_mo or ""),
+    ]).strip()
+    ws.Range("B8").Value = bloc_mo
+    ws.Range("T9").Value = tel_mo
+
+    # Bloc entreprise de montage + contact
+    bloc_montage = "\n".join([
+        str(entreprise_montage or ""),
+        str(contact_montage or ""),
+    ]).strip()
+    ws.Range("B11").Value = bloc_montage
+    ws.Range("T12").Value = tel_montage
+
+    # Bloc entreprise utilisatrice + contact
+    bloc_utilisatrice = "\n".join([
+        str(entreprise_utilisatrice or ""),
+        str(contact_utilisatrice or ""),
+    ]).strip()
+    ws.Range("B13").Value = bloc_utilisatrice
+    ws.Range("T14").Value = tel_utilisatrice
+
+    # Champs simples
+    ws.Range("B19").Value = echafaudages_speciaux
+    ws.Range("B24").Value = restriction_utilisation
+
+
+def fill_type_echafaudage_fields_com(ws, dossier_data: dict):
+    for payload_key, cell_ref in TYPE_ECHAFAUDAGE_MAP.items():
+        if dossier_data.get(payload_key, False):
+            mark_x_com(ws, cell_ref)
+
+def fill_classe_charge_com(ws, dossier_data: dict):
+    value = str(dossier_data.get("classe_charge", "")).strip()
+    cell_ref = CLASSE_CHARGE_MAP.get(value)
+
+    if cell_ref:
+        mark_x_com(ws, cell_ref)
+
+
+def fill_classe_largeur_com(ws, dossier_data: dict):
+    value = str(dossier_data.get("classe_largeur", "")).strip().upper()
+    cell_ref = CLASSE_LARGEUR_MAP.get(value)
+
+    if cell_ref:
+        mark_x_com(ws, cell_ref)
+
+    if value == "W":
+        largeur_libre = str(dossier_data.get("largeur_libre", "")).strip()
+        if largeur_libre:
+            ws.Range("T23").Value = f"X ({largeur_libre})"
+
+def fill_type_entreprise_field_com(ws, dossier_data: dict):
+    value = str(dossier_data.get("type_entreprise", "")).strip().lower()
+
+    if value == "montage":
+        texte = "Entreprise de montage"
+    elif value == "propre":
+        texte = "Entreprise de montage pour usage propre"
+    else:
+        texte = ""
+
+    if texte:
+        cell = ws.Range(TYPE_ENTREPRISE_TEXT_CELL)
+        cell.Value = texte
+        cell.Font.Name = "Calibri"
+        cell.Font.Size = 18
+        cell.Font.Bold = False
+        cell.HorizontalAlignment = -4108  # xlCenter
+        cell.VerticalAlignment = -4108    # xlCenter
+def fill_observations_block_com(ws, dossier_data: dict):
+    observations = dossier_data.get("observations", "")
+    ws.Range(OBSERVATIONS_CELL).Value = observations
 
 def export_excel_to_pdf(excel_path: Path, pdf_path: Path):
     excel = None
     workbook = None
-    export_ws = None
+    temp_excel_path = excel_path.with_name(f"{excel_path.stem}_export_temp.xlsx")
 
     try:
+        shutil.copy2(excel_path, temp_excel_path)
+
         excel = win32com.client.DispatchEx("Excel.Application")
         excel.Visible = False
         excel.DisplayAlerts = False
 
-        workbook = excel.Workbooks.Open(str(excel_path.resolve()))
-        source_ws = workbook.Worksheets("Formulaire")
+        workbook = excel.Workbooks.Open(str(temp_excel_path.resolve()))
 
-        # Dupliquer la feuille DANS LE MEME CLASSEUR
-        source_ws.Copy(After=workbook.Worksheets(workbook.Worksheets.Count))
-        export_ws = workbook.Worksheets(workbook.Worksheets.Count)
-        export_ws.Name = "EXPORT_PDF"
+        # On garde uniquement la feuille utile si besoin
+        for i in range(workbook.Worksheets.Count, 0, -1):
+            current_ws = workbook.Worksheets(i)
+            if current_ws.Name != "Formulaire":
+                current_ws.Delete()
 
-        # Nettoyage des anciens sauts
-        try:
-            export_ws.ResetAllPageBreaks()
-        except Exception:
-            pass
+        ws = workbook.Worksheets("Formulaire")
+        ws.Select()
 
-        # Supprimer les lignes intermédiaires pour que la zone observations remonte
-        export_ws.Rows("45:57").Delete()
-
-        # Zone utile après suppression
-        export_ws.PageSetup.PrintArea = "$A$1:$AR$124"
-
-        # Saut de page avant la ligne 45
-        export_ws.HPageBreaks.Add(Before=export_ws.Rows(45))
-
-        # Très important : ne pas écraser la géométrie en hauteur
-        export_ws.PageSetup.Zoom = 100
-
-        # Garder le format du modèle
-        export_ws.PageSetup.PaperSize = 8      # A3
-        export_ws.PageSetup.Orientation = 2    # paysage
-
-        # Marges nulles
-        export_ws.PageSetup.LeftMargin = 0
-        export_ws.PageSetup.RightMargin = 0
-        export_ws.PageSetup.TopMargin = 0
-        export_ws.PageSetup.BottomMargin = 0
-        export_ws.PageSetup.HeaderMargin = 0
-        export_ws.PageSetup.FooterMargin = 0
-
-        export_ws.PageSetup.CenterHorizontally = False
-        export_ws.PageSetup.CenterVertically = False
-
-        # Export uniquement de la feuille temporaire
-        export_ws.Select()
-        excel.ActiveSheet.ExportAsFixedFormat(0, str(pdf_path.resolve()))
+        # On ne touche pas au PageSetup :
+        # on garde les réglages natifs du fichier source
+        workbook.ExportAsFixedFormat(
+            0,  # 0 = PDF
+            str(pdf_path.resolve())
+        )
 
     finally:
         if workbook is not None:
@@ -395,11 +496,18 @@ def export_excel_to_pdf(excel_path: Path, pdf_path: Path):
                 workbook.Close(False)
             except Exception:
                 pass
+
         if excel is not None:
             try:
                 excel.Quit()
             except Exception:
                 pass
+
+        try:
+            if temp_excel_path.exists():
+                temp_excel_path.unlink()
+        except Exception:
+            pass
 
 
 def write_merged_cell(ws, cell_ref: str, value, font_size: int | None = None, bold: bool | None = None):
@@ -463,7 +571,10 @@ def fill_societes_utilisatrices_table(ws, societes_utilisatrices: list, temp_dir
         signature_b64 = soc.get("signature_b64", "")
 
         if signed and signature_b64:
-            ws[cell_date] = soc.get("date_signature", "")
+            date_signature = soc.get("date_signature", "")
+            heure_signature = soc.get("heure_signature", "")
+            ws[cell_date] = f"{date_signature} {heure_signature}".strip()
+
             temp_signature_path = temp_dir / f"signature_societe_{row}.png"
             save_base64_signature_to_temp_png(signature_b64, temp_signature_path)
             insert_signature_in_cell(ws, cell_signature, temp_signature_path)
@@ -476,7 +587,9 @@ def fill_societes_utilisatrices_table(ws, societes_utilisatrices: list, temp_dir
 
 
 def apply_page_setup(ws):
-    return
+    # On ne touche à rien :
+    # le modèle source Excel contient déjà la bonne mise en page
+    pass
 
 
 # =========================================================
@@ -632,13 +745,25 @@ def fill_checklist_fields(ws, dossier_data: dict):
 
         if cell_ref:
             mark_x(ws, cell_ref)
+def fill_checklist_fields_com(ws, dossier_data: dict):
+    for payload_key, mapping in CHECKLIST_MAP.items():
+        value = dossier_data.get(payload_key, "")
 
+        if "value" in mapping:
+            if value not in ("", None):
+                ws.Range(mapping["value"]).Value = value
+            continue
+
+        value = str(value).strip().lower()
+        cell_ref = mapping.get(value)
+
+        if cell_ref:
+            mark_x_com(ws, cell_ref)
 
 def fill_observations_block(ws, dossier_data: dict):
     observations = dossier_data.get("observations", "")
-    if observations:
-        cell_obs = write_merged_cell(ws, "A61", observations, font_size=18)
-        cell_obs.alignment = Alignment(horizontal="left", vertical="top", wrap_text=True)
+    cell_obs = write_merged_cell(ws, OBSERVATIONS_CELL, observations, font_size=18)
+    cell_obs.alignment = Alignment(horizontal="left", vertical="top", wrap_text=True)
 
 
 def fill_verificateur_block(ws, dossier_data: dict):
@@ -681,6 +806,82 @@ def fill_verificateur_block(ws, dossier_data: dict):
         except Exception as e:
             print("Erreur insertion signature vérificateur Excel :", e)
 
+def fill_verificateur_block_com(ws, dossier_data: dict):
+    verificateur_nom = dossier_data.get("verificateur_nom", "").strip()
+    verificateur_numero_diplome = dossier_data.get("verificateur_numero_diplome", "").strip()
+
+    verification_datetime = dossier_data.get("verification_datetime")
+    if verification_datetime:
+        try:
+            dt = datetime.fromisoformat(verification_datetime)
+        except ValueError:
+            dt = datetime.now()
+    else:
+        dt = datetime.now()
+        dossier_data["verification_datetime"] = dt.isoformat()
+
+    if verificateur_nom:
+        ws.Range(VERIF_NAME_CELL).Value = verificateur_nom
+
+    if verificateur_numero_diplome:
+        ws.Range(VERIF_DIPLOME_CELL).Value = verificateur_numero_diplome
+
+    ws.Range(VERIF_DATE_CELL).Value = dt.strftime("%d/%m/%Y")
+    ws.Range(VERIF_HOUR_CELL).Value = dt.strftime("%H:%M")
+
+    signature_data = dossier_data.get("signature", "")
+    signature_path = save_signature_from_base64(signature_data)
+
+    if signature_path and signature_path.exists():
+        try:
+            insert_signature_com(ws, VERIF_SIGNATURE_CELL, signature_path)
+        except Exception as e:
+            print("Erreur insertion signature vérificateur COM :", e)
+
+def insert_signature_com(ws, cell_address: str, image_path: Path):
+    cell = ws.Range(cell_address)
+
+    try:
+        if cell.MergeCells:
+            area = cell.MergeArea
+        else:
+            area = cell
+    except Exception:
+        area = cell
+
+    left = area.Left
+    top = area.Top
+    box_width = area.Width
+    box_height = area.Height
+
+    pic = ws.Shapes.AddPicture(
+        str(image_path.resolve()),
+        False,
+        True,
+        left,
+        top,
+        -1,
+        -1
+    )
+
+    # Conserver les proportions
+    try:
+        pic.LockAspectRatio = True
+    except Exception:
+        pass
+
+    # On remplit quasi toute la largeur de la zone fusionnée
+    pic.Width = box_width * 0.98
+
+    # Si la hauteur dépasse, on réduit pour rentrer
+    if pic.Height > box_height * 0.90:
+        ratio = (box_height * 0.90) / pic.Height
+        pic.Width = pic.Width * ratio
+        pic.Height = pic.Height * ratio
+
+    # Centrage
+    pic.Left = left + (box_width - pic.Width) / 2
+    pic.Top = top + (box_height - pic.Height) / 2
 
 def fill_client_block(ws, dossier_data: dict):
     client = dossier_data.get("client_signature", {}) or {}
@@ -716,30 +917,51 @@ def fill_client_block(ws, dossier_data: dict):
 def regenerate_excel_from_data(output_xlsx_path: Path, dossier_data: dict, temp_dir: Path):
     template_path = find_excel_template()
 
-    wb = load_workbook(template_path)
-    ws = wb["Formulaire"]
+    excel = None
+    workbook = None
 
-    numero_pv = dossier_data.get("numero_pv") or datetime.now().strftime("%Y%m%d%H%M%S")
-    dossier_data["numero_pv"] = numero_pv
+    try:
+        shutil.copy2(template_path, output_xlsx_path)
 
-    titre_pv = f"PROCÈS-VERBAL DE CONTRÔLE N°{numero_pv}"
-    write_merged_cell(ws, "A1", titre_pv, font_size=16, bold=True)
+        excel = win32com.client.DispatchEx("Excel.Application")
+        excel.Visible = False
+        excel.DisplayAlerts = False
 
-    fill_simple_text_fields(ws, dossier_data)
-    fill_type_echafaudage_fields(ws, dossier_data)
-    fill_type_entreprise_field(ws, dossier_data)
-    fill_classe_charge(ws, dossier_data)
-    fill_classe_largeur(ws, dossier_data)
-    fill_checklist_fields(ws, dossier_data)
-    fill_observations_block(ws, dossier_data)
-    fill_verificateur_block(ws, dossier_data)
-    fill_client_block(ws, dossier_data)
+        workbook = excel.Workbooks.Open(str(output_xlsx_path.resolve()))
+        ws = workbook.Worksheets("Formulaire")
 
-    societes_utilisatrices = dossier_data.get("societes_utilisatrices", [])
-    fill_societes_utilisatrices_table(ws, societes_utilisatrices, temp_dir)
+        numero_pv = dossier_data.get("numero_pv") or datetime.now().strftime("%Y%m%d%H%M%S")
+        dossier_data["numero_pv"] = numero_pv
 
-    apply_page_setup(ws)
-    wb.save(output_xlsx_path)
+        ws.Range("A1").Value = f"PROCÈS-VERBAL DE CONTRÔLE N°{numero_pv}"
+        ws.Range("A1").Font.Size = 16
+        ws.Range("A1").Font.Bold = True
+
+        fill_simple_text_fields_com(ws, dossier_data)
+        fill_type_echafaudage_fields_com(ws, dossier_data)
+
+        fill_classe_charge_com(ws, dossier_data)
+        fill_classe_largeur_com(ws, dossier_data)
+
+        fill_checklist_fields_com(ws, dossier_data)
+        fill_type_entreprise_field_com(ws, dossier_data)
+        fill_observations_block_com(ws, dossier_data)
+        fill_verificateur_block_com(ws, dossier_data)
+
+        workbook.Save()
+
+    finally:
+        if workbook is not None:
+            try:
+                workbook.Close(False)
+            except Exception:
+                pass
+
+        if excel is not None:
+            try:
+                excel.Quit()
+            except Exception:
+                pass
 
 
 # =========================================================

@@ -9,6 +9,15 @@ import io
 import traceback
 import subprocess
 
+
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+
+
+
+
+
 from fastapi import FastAPI, Request, Form, UploadFile, File, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -35,6 +44,7 @@ from database import init_db, insert_verificateur, get_all_verificateurs, search
 ADMIN_PASSWORD = "Omnilux2026"
 APP_SECRET_KEY = "SUPER_SECRET_KEY_CHANGE_MOI"
 
+
 MAX_SOCIETES_UTILISATRICES = 10
 
 ROW_START_SOCIETES = 33
@@ -46,7 +56,7 @@ COL_DATE = "O"
 COL_SIGNATURE = "T"
 
 # ---- Zone vérificateur
-VERIF_SIGNATURE_CELL = "AC38"
+VERIF_SIGNATURE_CELL = "AC38:AR38"
 VERIF_NAME_CELL = "AC35"
 VERIF_DATE_CELL = "AC37"
 VERIF_HOUR_CELL = "AP37"
@@ -329,6 +339,133 @@ def insert_signature_fit_merged_area(ws, cell_address: str, image_path: Path, pa
 # =========================================================
 # HELPERS - EXCEL / PDF
 # =========================================================
+<<<<<<< HEAD
+=======
+def write_excel_cell(ws, cell_ref: str, value):
+    cell = ws.Range(cell_ref)
+
+    try:
+        if cell.MergeCells:
+            cell = cell.MergeArea.Cells(1, 1)
+    except Exception:
+        pass
+
+    cell.Value = value if value is not None else ""
+
+
+def mark_x_com(ws, cell_ref: str):
+    cell = ws.Range(cell_ref)
+    cell.Value = "X"
+    cell.HorizontalAlignment = -4108  # xlCenter
+    cell.VerticalAlignment = -4108    # xlCenter
+    cell.Font.Bold = True
+    cell.Font.Size = 12
+
+
+def fill_simple_text_fields_com(ws, dossier_data: dict):
+    chantier = dossier_data.get("chantier", "")
+    adresse = dossier_data.get("adresse", "")
+    date_montage = dossier_data.get("date_montage", "")
+
+    maitre_ouvrage = dossier_data.get("maitre_ouvrage", "")
+    contact_mo = dossier_data.get("contact_mo", "")
+    tel_mo = dossier_data.get("tel_mo", "")
+
+    entreprise_montage = dossier_data.get("entreprise_montage", "")
+    contact_montage = dossier_data.get("contact_montage", "")
+    tel_montage = dossier_data.get("tel_montage", "")
+
+    entreprise_utilisatrice = dossier_data.get("entreprise_utilisatrice", "")
+    contact_utilisatrice = dossier_data.get("contact_utilisatrice", "")
+    tel_utilisatrice = dossier_data.get("tel_utilisatrice", "")
+
+    echafaudages_speciaux = dossier_data.get("echafaudages_speciaux", "")
+    restriction_utilisation = dossier_data.get("restriction_utilisation", "")
+
+    # Bloc chantier / localisation / date de montage
+    bloc_chantier = "\n".join([
+        str(chantier or ""),
+        str(adresse or ""),
+        str(date_montage or ""),
+    ]).strip()
+    ws.Range("B6").Value = bloc_chantier
+
+    # Bloc maître d’ouvrage + contact
+    bloc_mo = "\n".join([
+        str(maitre_ouvrage or ""),
+        str(contact_mo or ""),
+    ]).strip()
+    ws.Range("B8").Value = bloc_mo
+    ws.Range("T9").Value = tel_mo
+
+    # Bloc entreprise de montage + contact
+    bloc_montage = "\n".join([
+        str(entreprise_montage or ""),
+        str(contact_montage or ""),
+    ]).strip()
+    ws.Range("B11").Value = bloc_montage
+    ws.Range("T12").Value = tel_montage
+
+    # Bloc entreprise utilisatrice + contact
+    bloc_utilisatrice = "\n".join([
+        str(entreprise_utilisatrice or ""),
+        str(contact_utilisatrice or ""),
+    ]).strip()
+    ws.Range("B13").Value = bloc_utilisatrice
+    ws.Range("T14").Value = tel_utilisatrice
+
+    # Champs simples
+    ws.Range("B19").Value = echafaudages_speciaux
+    ws.Range("B24").Value = restriction_utilisation
+
+
+def fill_type_echafaudage_fields_com(ws, dossier_data: dict):
+    for payload_key, cell_ref in TYPE_ECHAFAUDAGE_MAP.items():
+        if dossier_data.get(payload_key, False):
+            mark_x_com(ws, cell_ref)
+
+def fill_classe_charge_com(ws, dossier_data: dict):
+    value = str(dossier_data.get("classe_charge", "")).strip()
+    cell_ref = CLASSE_CHARGE_MAP.get(value)
+
+    if cell_ref:
+        mark_x_com(ws, cell_ref)
+
+
+def fill_classe_largeur_com(ws, dossier_data: dict):
+    value = str(dossier_data.get("classe_largeur", "")).strip().upper()
+    cell_ref = CLASSE_LARGEUR_MAP.get(value)
+
+    if cell_ref:
+        mark_x_com(ws, cell_ref)
+
+    if value == "W":
+        largeur_libre = str(dossier_data.get("largeur_libre", "")).strip()
+        if largeur_libre:
+            ws.Range("T23").Value = f"X ({largeur_libre})"
+
+def fill_type_entreprise_field_com(ws, dossier_data: dict):
+    value = str(dossier_data.get("type_entreprise", "")).strip().lower()
+
+    if value == "montage":
+        texte = "Entreprise de montage"
+    elif value == "propre":
+        texte = "Entreprise de montage pour usage propre"
+    else:
+        texte = ""
+
+    if texte:
+        cell = ws.Range(TYPE_ENTREPRISE_TEXT_CELL)
+        cell.Value = texte
+        cell.Font.Name = "Calibri"
+        cell.Font.Size = 18
+        cell.Font.Bold = False
+        cell.HorizontalAlignment = -4108  # xlCenter
+        cell.VerticalAlignment = -4108    # xlCenter
+def fill_observations_block_com(ws, dossier_data: dict):
+    observations = dossier_data.get("observations", "")
+    ws.Range(OBSERVATIONS_CELL).Value = observations
+>>>>>>> 4ae6310 (Ajout envoi mail automatique + champ destinataires + corrections backend)
 
 def export_excel_to_pdf(excel_path: Path, pdf_path: Path):
     """
@@ -440,6 +577,30 @@ def fill_societes_utilisatrices_table(ws, societes_utilisatrices: list, temp_dir
 
 def apply_page_setup(ws):
     ws.print_area = PRINT_AREA
+
+def send_email(destinataires: str, sujet: str, contenu: str):
+    try:
+        smtp_server = "smtp.office365.com"  # ou smtp.gmail.com
+        smtp_port = 587
+
+        email_user = "contact@tondomaine.com"
+        email_password = "TON_MOT_DE_PASSE"
+
+        msg = MIMEMultipart()
+        msg["From"] = email_user
+        msg["To"] = destinataires
+        msg["Subject"] = sujet
+
+        msg.attach(MIMEText(contenu, "plain"))
+
+        server = smtplib.SMTP(smtp_server, smtp_port)
+        server.starttls()
+        server.login(email_user, email_password)
+        server.send_message(msg)
+        server.quit()
+
+    except Exception as e:
+        print("Erreur envoi mail :", e)
 
 
 # =========================================================
@@ -632,11 +793,92 @@ def fill_verificateur_block(ws, dossier_data: dict):
 
     if signature_path and signature_path.exists():
         try:
-            insert_signature_fit_merged_area(ws, VERIF_SIGNATURE_CELL, signature_path, padding_px=4)
+            insert_signature_fit_range(ws, VERIF_SIGNATURE_CELL, signature_path, padding_px=4)
         except Exception as e:
             print("Erreur insertion signature vérificateur Excel :", e)
 
+<<<<<<< HEAD
 
+=======
+def fill_verificateur_block_com(ws, dossier_data: dict):
+    verificateur_nom = dossier_data.get("verificateur_nom", "").strip()
+    verificateur_numero_diplome = dossier_data.get("verificateur_numero_diplome", "").strip()
+
+    verification_datetime = dossier_data.get("verification_datetime")
+    if verification_datetime:
+        try:
+            dt = datetime.fromisoformat(verification_datetime)
+        except ValueError:
+            dt = datetime.now()
+    else:
+        dt = datetime.now()
+        dossier_data["verification_datetime"] = dt.isoformat()
+
+    if verificateur_nom:
+        ws.Range(VERIF_NAME_CELL).Value = verificateur_nom
+
+    if verificateur_numero_diplome:
+        ws.Range(VERIF_DIPLOME_CELL).Value = verificateur_numero_diplome
+
+    ws.Range(VERIF_DATE_CELL).Value = dt.strftime("%d/%m/%Y")
+    ws.Range(VERIF_HOUR_CELL).Value = dt.strftime("%H:%M")
+
+    signature_data = dossier_data.get("signature", "")
+    signature_path = save_signature_from_base64(signature_data)
+
+    if signature_path and signature_path.exists():
+        try:
+            insert_signature_com(ws, VERIF_SIGNATURE_CELL, signature_path)
+        except Exception as e:
+            print("Erreur insertion signature vérificateur COM :", e)
+
+def insert_signature_com(ws, cell_address: str, image_path: Path):
+    """
+    Insère la signature dans une zone Excel COM en calculant la taille
+    à partir des dimensions réelles de l'image.
+    """
+    area = ws.Range(cell_address)
+
+    left = float(area.Left)
+    top = float(area.Top)
+    box_width = float(area.Width)
+    box_height = float(area.Height)
+
+    # Lire la vraie taille de l'image
+    with PILImage.open(image_path) as pil_img:
+        img_width_px, img_height_px = pil_img.size
+
+    if img_width_px <= 0 or img_height_px <= 0:
+        raise ValueError("Dimensions image invalides")
+
+    # Marges internes dans la zone Excel
+    max_width = max(10.0, box_width * 0.98)
+    max_height = max(10.0, box_height * 1.80)
+
+    # Conversion pixels -> points Excel
+    # 1 px ≈ 0.75 pt à 96 dpi
+    img_width_pt = img_width_px * 0.75
+    img_height_pt = img_height_px * 0.75
+
+    ratio = min(max_width / img_width_pt, max_height / img_height_pt)
+
+    final_width = max(45.0, img_width_pt * ratio)
+    final_height = max(18.0, img_height_pt * ratio)
+
+    pic = ws.Shapes.AddPicture(
+        str(image_path.resolve()),
+        False,   # LinkToFile
+        True,    # SaveWithDocument
+        left,
+        top,
+        final_width,
+        final_height
+    )
+
+    # Centrage propre dans la zone
+    pic.Left = left + (box_width - final_width) / 2
+    pic.Top = top + (box_height - final_height) / 2
+>>>>>>> 4ae6310 (Ajout envoi mail automatique + champ destinataires + corrections backend)
 def fill_client_block(ws, dossier_data: dict):
     client = dossier_data.get("client_signature", {}) or {}
 
@@ -802,6 +1044,8 @@ def prepare_pv_payload(data: dict) -> dict:
 
         "client_signature": data.get("client_signature", {}),
         "societes_utilisatrices": data.get("societes_utilisatrices", []),
+        "email_utilisatrice": data.get("email_utilisatrice", "").strip(),
+        "email_mo": data.get("email_mo", "").strip(),
     }
 
     validate_societes_limit(payload["societes_utilisatrices"])
@@ -871,6 +1115,33 @@ async def create_or_regenerate_pv(request: Request):
         data = prepare_pv_payload(raw_data)
 
         generated = regenerate_pv_files(data)
+
+        emails = raw_data.get("emails_destinataires", "").strip()
+
+        if emails and generated["pdf_path"]:
+            pdf_url = f"http://127.0.0.1:8000/output/{generated['pdf_path'].name}"
+            signature_url = f"http://127.0.0.1:8000/client-signature/{data['dossier_id']}"
+
+            contenu = f"""
+Bonjour,
+
+Veuillez trouver ci-dessous le PV de réception :
+
+PDF :
+{pdf_url}
+
+Lien de vérification et signature :
+{signature_url}
+
+Cordialement,
+OMNILUX
+"""
+
+            send_email(
+                destinataires=emails,
+                sujet=f"PV réception échafaudage n°{data['numero_pv']}",
+                contenu=contenu
+            )
 
         return {
             "success": True,

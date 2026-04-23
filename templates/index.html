@@ -521,6 +521,16 @@
       <canvas id="signatureCanvas"></canvas>
 
       <button type="button" class="secondary-btn" id="clearBtn">Effacer la signature</button>
+
+      <label for="emails_destinataires">Adresse(s) mail destinataire(s)</label>
+      <input 
+        type="text" 
+        id="emails_destinataires" 
+        name="emails_destinataires"
+        placeholder="client@email.com; autre@email.com"
+      />
+      <small>Vous pouvez saisir plusieurs emails séparés par ; ou ,</small>
+
       <button type="button" class="secondary-btn" id="previewJsonBtn" style="display:none;">Vérifier le JSON</button>
       <button type="submit">Valider</button>
 
@@ -786,8 +796,13 @@
         verificateur_statut_color: document.getElementById("verificateur_statut_color").value,
         verificateur_statut_label: document.getElementById("verificateur_statut_label").value,
         verificateur_date_echeance: document.getElementById("verificateur_date_echeance").value,
+        emails_destinataires: document.getElementById("emails_destinataires").value,
 
         signature: canvas.toDataURL("image/png")
+
+
+
+        
       };
     }
 
@@ -837,7 +852,7 @@
         }
 
         alert("PV généré avec succès !");
-
+        
         if (result.pdf_file) {
           const pdfUrl = `${window.location.origin}${result.pdf_file}`;
           window.open(pdfUrl, "_blank");

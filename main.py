@@ -8,15 +8,10 @@ import shutil
 import io
 import traceback
 import subprocess
-
-
+import os
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-
-
-
-
 
 from fastapi import FastAPI, Request, Form, UploadFile, File, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -27,7 +22,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from openpyxl import load_workbook
 from openpyxl.drawing.image import Image as XLImage
 from openpyxl.styles import Font, Alignment, PatternFill
-from openpyxl.utils import column_index_from_string, get_column_letter
+from openpyxl.utils import column_index_from_string, get_column_letter, range_boundaries
 from openpyxl.drawing.spreadsheet_drawing import AnchorMarker, OneCellAnchor
 from openpyxl.drawing.xdr import XDRPositiveSize2D
 from openpyxl.utils.units import pixels_to_EMU
@@ -41,9 +36,16 @@ from database import init_db, insert_verificateur, get_all_verificateurs, search
 # CONFIG
 # =========================================================
 
-ADMIN_PASSWORD = "Omnilux2026"
-APP_SECRET_KEY = "SUPER_SECRET_KEY_CHANGE_MOI"
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "Omnilux2026")
+APP_SECRET_KEY = os.getenv("APP_SECRET_KEY", "SUPER_SECRET_KEY_CHANGE_MOI")
 
+APP_PUBLIC_URL = os.getenv("APP_PUBLIC_URL", "http://127.0.0.1:8000").rstrip("/")
+
+SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.office365.com")
+SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+SMTP_USER = os.getenv("SMTP_USER", "")
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
+SMTP_FROM = os.getenv("SMTP_FROM", SMTP_USER)
 
 MAX_SOCIETES_UTILISATRICES = 10
 
@@ -155,8 +157,7 @@ def find_excel_template() -> Path:
             return path
 
     raise FileNotFoundError(
-        "Aucun modèle Excel trouvé dans templates/. "
-        "Nom attendu : PV_MODELE.xlsx (ou équivalent)."
+        "Aucun modèle Excel trouvé dans templates/. Nom attendu : PV_MODELE.xlsx."
     )
 
 
@@ -208,10 +209,7 @@ def save_upload_file(upload_file: UploadFile, destination_dir: Path) -> str:
 # =========================================================
 
 def decode_base64_image(signature_data_url: str) -> bytes | None:
-    if not signature_data_url:
-        return None
-
-    if not signature_data_url.startswith("data:image"):
+    if not signature_data_url or not signature_data_url.startswith("data:image"):
         return None
 
     try:
@@ -264,9 +262,19 @@ def excel_row_height_to_pixels(height):
     return int(height * 96 / 72)
 
 
-def get_cell_or_merged_range_bounds(ws, cell_address: str):
+def get_cell_or_range_bounds(ws, cell_or_range: str):
+    """
+    Accepte :
+    - une cellule simple : AC38
+    - une plage : AC38:AR38
+    - une cellule appartenant à une zone fusionnée
+    """
+    if ":" in cell_or_range:
+        min_col, min_row, max_col, max_row = range_boundaries(cell_or_range)
+        return min_col, min_row, max_col, max_row
+
     for merged_range in ws.merged_cells.ranges:
-        if cell_address in merged_range:
+        if cell_or_range in merged_range:
             return (
                 merged_range.min_col,
                 merged_range.min_row,
@@ -274,8 +282,8 @@ def get_cell_or_merged_range_bounds(ws, cell_address: str):
                 merged_range.max_row,
             )
 
-    col_letters = "".join(filter(str.isalpha, cell_address))
-    row_digits = "".join(filter(str.isdigit, cell_address))
+    col_letters = "".join(filter(str.isalpha, cell_or_range))
+    row_digits = "".join(filter(str.isdigit, cell_or_range))
 
     col = column_index_from_string(col_letters)
     row = int(row_digits)
@@ -299,8 +307,8 @@ def get_range_size_pixels(ws, min_col, min_row, max_col, max_row):
     return total_width, total_height
 
 
-def insert_signature_fit_merged_area(ws, cell_address: str, image_path: Path, padding_px: int = 4):
-    min_col, min_row, max_col, max_row = get_cell_or_merged_range_bounds(ws, cell_address)
+def insert_signature_fit_area(ws, cell_or_range: str, image_path: Path, padding_px: int = 4):
+    min_col, min_row, max_col, max_row = get_cell_or_range_bounds(ws, cell_or_range)
     box_width, box_height = get_range_size_pixels(ws, min_col, min_row, max_col, max_row)
 
     max_width = max(20, box_width - (padding_px * 2))
@@ -339,138 +347,11 @@ def insert_signature_fit_merged_area(ws, cell_address: str, image_path: Path, pa
 # =========================================================
 # HELPERS - EXCEL / PDF
 # =========================================================
-<<<<<<< HEAD
-=======
-def write_excel_cell(ws, cell_ref: str, value):
-    cell = ws.Range(cell_ref)
-
-    try:
-        if cell.MergeCells:
-            cell = cell.MergeArea.Cells(1, 1)
-    except Exception:
-        pass
-
-    cell.Value = value if value is not None else ""
-
-
-def mark_x_com(ws, cell_ref: str):
-    cell = ws.Range(cell_ref)
-    cell.Value = "X"
-    cell.HorizontalAlignment = -4108  # xlCenter
-    cell.VerticalAlignment = -4108    # xlCenter
-    cell.Font.Bold = True
-    cell.Font.Size = 12
-
-
-def fill_simple_text_fields_com(ws, dossier_data: dict):
-    chantier = dossier_data.get("chantier", "")
-    adresse = dossier_data.get("adresse", "")
-    date_montage = dossier_data.get("date_montage", "")
-
-    maitre_ouvrage = dossier_data.get("maitre_ouvrage", "")
-    contact_mo = dossier_data.get("contact_mo", "")
-    tel_mo = dossier_data.get("tel_mo", "")
-
-    entreprise_montage = dossier_data.get("entreprise_montage", "")
-    contact_montage = dossier_data.get("contact_montage", "")
-    tel_montage = dossier_data.get("tel_montage", "")
-
-    entreprise_utilisatrice = dossier_data.get("entreprise_utilisatrice", "")
-    contact_utilisatrice = dossier_data.get("contact_utilisatrice", "")
-    tel_utilisatrice = dossier_data.get("tel_utilisatrice", "")
-
-    echafaudages_speciaux = dossier_data.get("echafaudages_speciaux", "")
-    restriction_utilisation = dossier_data.get("restriction_utilisation", "")
-
-    # Bloc chantier / localisation / date de montage
-    bloc_chantier = "\n".join([
-        str(chantier or ""),
-        str(adresse or ""),
-        str(date_montage or ""),
-    ]).strip()
-    ws.Range("B6").Value = bloc_chantier
-
-    # Bloc maître d’ouvrage + contact
-    bloc_mo = "\n".join([
-        str(maitre_ouvrage or ""),
-        str(contact_mo or ""),
-    ]).strip()
-    ws.Range("B8").Value = bloc_mo
-    ws.Range("T9").Value = tel_mo
-
-    # Bloc entreprise de montage + contact
-    bloc_montage = "\n".join([
-        str(entreprise_montage or ""),
-        str(contact_montage or ""),
-    ]).strip()
-    ws.Range("B11").Value = bloc_montage
-    ws.Range("T12").Value = tel_montage
-
-    # Bloc entreprise utilisatrice + contact
-    bloc_utilisatrice = "\n".join([
-        str(entreprise_utilisatrice or ""),
-        str(contact_utilisatrice or ""),
-    ]).strip()
-    ws.Range("B13").Value = bloc_utilisatrice
-    ws.Range("T14").Value = tel_utilisatrice
-
-    # Champs simples
-    ws.Range("B19").Value = echafaudages_speciaux
-    ws.Range("B24").Value = restriction_utilisation
-
-
-def fill_type_echafaudage_fields_com(ws, dossier_data: dict):
-    for payload_key, cell_ref in TYPE_ECHAFAUDAGE_MAP.items():
-        if dossier_data.get(payload_key, False):
-            mark_x_com(ws, cell_ref)
-
-def fill_classe_charge_com(ws, dossier_data: dict):
-    value = str(dossier_data.get("classe_charge", "")).strip()
-    cell_ref = CLASSE_CHARGE_MAP.get(value)
-
-    if cell_ref:
-        mark_x_com(ws, cell_ref)
-
-
-def fill_classe_largeur_com(ws, dossier_data: dict):
-    value = str(dossier_data.get("classe_largeur", "")).strip().upper()
-    cell_ref = CLASSE_LARGEUR_MAP.get(value)
-
-    if cell_ref:
-        mark_x_com(ws, cell_ref)
-
-    if value == "W":
-        largeur_libre = str(dossier_data.get("largeur_libre", "")).strip()
-        if largeur_libre:
-            ws.Range("T23").Value = f"X ({largeur_libre})"
-
-def fill_type_entreprise_field_com(ws, dossier_data: dict):
-    value = str(dossier_data.get("type_entreprise", "")).strip().lower()
-
-    if value == "montage":
-        texte = "Entreprise de montage"
-    elif value == "propre":
-        texte = "Entreprise de montage pour usage propre"
-    else:
-        texte = ""
-
-    if texte:
-        cell = ws.Range(TYPE_ENTREPRISE_TEXT_CELL)
-        cell.Value = texte
-        cell.Font.Name = "Calibri"
-        cell.Font.Size = 18
-        cell.Font.Bold = False
-        cell.HorizontalAlignment = -4108  # xlCenter
-        cell.VerticalAlignment = -4108    # xlCenter
-def fill_observations_block_com(ws, dossier_data: dict):
-    observations = dossier_data.get("observations", "")
-    ws.Range(OBSERVATIONS_CELL).Value = observations
->>>>>>> 4ae6310 (Ajout envoi mail automatique + champ destinataires + corrections backend)
 
 def export_excel_to_pdf(excel_path: Path, pdf_path: Path):
     """
     Conversion XLSX -> PDF via LibreOffice headless.
-    Nécessite 'soffice' installé sur le système.
+    Nécessite LibreOffice installé sur Railway.
     """
     output_dir = pdf_path.parent
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -507,7 +388,7 @@ def write_merged_cell(ws, cell_ref: str, value, font_size: int | None = None, bo
             target_cell = ws[merged_range.start_cell.coordinate]
             break
 
-    target_cell.value = value
+    target_cell.value = value if value is not None else ""
 
     if font_size is not None or bold is not None:
         new_font = copy(target_cell.font)
@@ -566,7 +447,7 @@ def fill_societes_utilisatrices_table(ws, societes_utilisatrices: list, temp_dir
 
             temp_signature_path = temp_dir / f"signature_societe_{row}.png"
             save_base64_signature_to_temp_png(signature_b64, temp_signature_path)
-            insert_signature_fit_merged_area(ws, cell_signature, temp_signature_path)
+            insert_signature_fit_area(ws, cell_signature, temp_signature_path)
         else:
             ws[cell_date] = ""
             ws[cell_signature].fill = ATTENTE_FILL
@@ -578,26 +459,30 @@ def fill_societes_utilisatrices_table(ws, societes_utilisatrices: list, temp_dir
 def apply_page_setup(ws):
     ws.print_area = PRINT_AREA
 
+
+# =========================================================
+# EMAIL
+# =========================================================
+
 def send_email(destinataires: str, sujet: str, contenu: str):
+    if not destinataires:
+        return
+
+    if not SMTP_USER or not SMTP_PASSWORD or not SMTP_FROM:
+        print("Email non envoyé : variables SMTP manquantes")
+        return
+
     try:
-        smtp_server = "smtp.office365.com"  # ou smtp.gmail.com
-        smtp_port = 587
-
-        email_user = "contact@tondomaine.com"
-        email_password = "TON_MOT_DE_PASSE"
-
         msg = MIMEMultipart()
-        msg["From"] = email_user
+        msg["From"] = SMTP_FROM
         msg["To"] = destinataires
         msg["Subject"] = sujet
+        msg.attach(MIMEText(contenu, "plain", "utf-8"))
 
-        msg.attach(MIMEText(contenu, "plain"))
-
-        server = smtplib.SMTP(smtp_server, smtp_port)
-        server.starttls()
-        server.login(email_user, email_password)
-        server.send_message(msg)
-        server.quit()
+        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+            server.starttls()
+            server.login(SMTP_USER, SMTP_PASSWORD)
+            server.send_message(msg)
 
     except Exception as e:
         print("Erreur envoi mail :", e)
@@ -729,10 +614,7 @@ def fill_classe_largeur(ws, dossier_data: dict):
         largeur_libre = str(dossier_data.get("largeur_libre", "")).strip()
         if largeur_libre:
             current = ws["T23"].value or ""
-            if current == "X":
-                ws["T23"] = f"X ({largeur_libre})"
-            else:
-                ws["T23"] = largeur_libre
+            ws["T23"] = f"X ({largeur_libre})" if current == "X" else largeur_libre
 
 
 def fill_checklist_fields(ws, dossier_data: dict):
@@ -793,92 +675,11 @@ def fill_verificateur_block(ws, dossier_data: dict):
 
     if signature_path and signature_path.exists():
         try:
-            insert_signature_fit_range(ws, VERIF_SIGNATURE_CELL, signature_path, padding_px=4)
+            insert_signature_fit_area(ws, VERIF_SIGNATURE_CELL, signature_path, padding_px=4)
         except Exception as e:
             print("Erreur insertion signature vérificateur Excel :", e)
 
-<<<<<<< HEAD
 
-=======
-def fill_verificateur_block_com(ws, dossier_data: dict):
-    verificateur_nom = dossier_data.get("verificateur_nom", "").strip()
-    verificateur_numero_diplome = dossier_data.get("verificateur_numero_diplome", "").strip()
-
-    verification_datetime = dossier_data.get("verification_datetime")
-    if verification_datetime:
-        try:
-            dt = datetime.fromisoformat(verification_datetime)
-        except ValueError:
-            dt = datetime.now()
-    else:
-        dt = datetime.now()
-        dossier_data["verification_datetime"] = dt.isoformat()
-
-    if verificateur_nom:
-        ws.Range(VERIF_NAME_CELL).Value = verificateur_nom
-
-    if verificateur_numero_diplome:
-        ws.Range(VERIF_DIPLOME_CELL).Value = verificateur_numero_diplome
-
-    ws.Range(VERIF_DATE_CELL).Value = dt.strftime("%d/%m/%Y")
-    ws.Range(VERIF_HOUR_CELL).Value = dt.strftime("%H:%M")
-
-    signature_data = dossier_data.get("signature", "")
-    signature_path = save_signature_from_base64(signature_data)
-
-    if signature_path and signature_path.exists():
-        try:
-            insert_signature_com(ws, VERIF_SIGNATURE_CELL, signature_path)
-        except Exception as e:
-            print("Erreur insertion signature vérificateur COM :", e)
-
-def insert_signature_com(ws, cell_address: str, image_path: Path):
-    """
-    Insère la signature dans une zone Excel COM en calculant la taille
-    à partir des dimensions réelles de l'image.
-    """
-    area = ws.Range(cell_address)
-
-    left = float(area.Left)
-    top = float(area.Top)
-    box_width = float(area.Width)
-    box_height = float(area.Height)
-
-    # Lire la vraie taille de l'image
-    with PILImage.open(image_path) as pil_img:
-        img_width_px, img_height_px = pil_img.size
-
-    if img_width_px <= 0 or img_height_px <= 0:
-        raise ValueError("Dimensions image invalides")
-
-    # Marges internes dans la zone Excel
-    max_width = max(10.0, box_width * 0.98)
-    max_height = max(10.0, box_height * 1.80)
-
-    # Conversion pixels -> points Excel
-    # 1 px ≈ 0.75 pt à 96 dpi
-    img_width_pt = img_width_px * 0.75
-    img_height_pt = img_height_px * 0.75
-
-    ratio = min(max_width / img_width_pt, max_height / img_height_pt)
-
-    final_width = max(45.0, img_width_pt * ratio)
-    final_height = max(18.0, img_height_pt * ratio)
-
-    pic = ws.Shapes.AddPicture(
-        str(image_path.resolve()),
-        False,   # LinkToFile
-        True,    # SaveWithDocument
-        left,
-        top,
-        final_width,
-        final_height
-    )
-
-    # Centrage propre dans la zone
-    pic.Left = left + (box_width - final_width) / 2
-    pic.Top = top + (box_height - final_height) / 2
->>>>>>> 4ae6310 (Ajout envoi mail automatique + champ destinataires + corrections backend)
 def fill_client_block(ws, dossier_data: dict):
     client = dossier_data.get("client_signature", {}) or {}
 
@@ -905,7 +706,7 @@ def fill_client_block(ws, dossier_data: dict):
         signature_path = save_signature_from_base64(client_signature)
         if signature_path and signature_path.exists():
             try:
-                insert_signature_fit_merged_area(ws, CLIENT_SIGNATURE_CELL, signature_path, padding_px=4)
+                insert_signature_fit_area(ws, CLIENT_SIGNATURE_CELL, signature_path, padding_px=4)
             except Exception as e:
                 print("Erreur insertion signature client Excel :", e)
 
@@ -969,24 +770,19 @@ def prepare_pv_payload(data: dict) -> dict:
     payload = {
         "dossier_id": dossier_id,
         "numero_pv": numero_pv,
-
         "chantier": data.get("chantier", ""),
         "adresse": data.get("adresse", ""),
         "date_montage": data.get("date_montage", ""),
         "observations": data.get("observations", ""),
-
         "maitre_ouvrage": data.get("maitre_ouvrage", ""),
         "contact_mo": data.get("contact_mo", ""),
         "tel_mo": data.get("tel_mo", ""),
-
         "entreprise_montage": data.get("entreprise_montage", ""),
         "contact_montage": data.get("contact_montage", ""),
         "tel_montage": data.get("tel_montage", ""),
-
         "entreprise_utilisatrice": data.get("entreprise_utilisatrice", ""),
         "contact_utilisatrice": data.get("contact_utilisatrice", ""),
         "tel_utilisatrice": data.get("tel_utilisatrice", ""),
-
         "type_facade": data.get("type_facade", False),
         "type_recueil": data.get("type_recueil", False),
         "type_filet": data.get("type_filet", False),
@@ -996,39 +792,11 @@ def prepare_pv_payload(data: dict) -> dict:
         "type_toit": data.get("type_toit", False),
         "type_toiture": data.get("type_toiture", False),
         "type_entreprise": data.get("type_entreprise", ""),
-
         "echafaudages_speciaux": data.get("echafaudages_speciaux", ""),
         "classe_charge": data.get("classe_charge", ""),
         "classe_largeur": data.get("classe_largeur", ""),
         "largeur_libre": data.get("largeur_libre", ""),
         "restriction_utilisation": data.get("restriction_utilisation", ""),
-
-        "q_apparentement_intacts": data.get("q_apparentement_intacts", ""),
-        "q_resistance_support": data.get("q_resistance_support", ""),
-        "q_verins_reglage": data.get("q_verins_reglage", ""),
-        "q_contreventements": data.get("q_contreventements", ""),
-        "q_traverses_longitudinales": data.get("q_traverses_longitudinales", ""),
-        "q_poutres_treillis": data.get("q_poutres_treillis", ""),
-        "q_ancrages_nombre": data.get("q_ancrages_nombre", ""),
-        "q_niveaux_recouverts": data.get("q_niveaux_recouverts", ""),
-        "q_planchers_compris": data.get("q_planchers_compris", ""),
-        "q_au_niveau_des_angles": data.get("q_au_niveau_des_angles", ""),
-        "q_madriers": data.get("q_madriers", ""),
-        "q_ouvertures": data.get("q_ouvertures", ""),
-        "q_dispositifs_securite": data.get("q_dispositifs_securite", ""),
-        "q_distance_mur": data.get("q_distance_mur", ""),
-        "q_garde_corps_interieur": data.get("q_garde_corps_interieur", ""),
-        "q_montees_acces": data.get("q_montees_acces", ""),
-        "q_tour_escaliers": data.get("q_tour_escaliers", ""),
-        "q_echelle_appui": data.get("q_echelle_appui", ""),
-        "q_exigences_recueil": data.get("q_exigences_recueil", ""),
-        "q_conduites_tension": data.get("q_conduites_tension", ""),
-        "q_ecran_protection": data.get("q_ecran_protection", ""),
-        "q_toit_protection_ctrl": data.get("q_toit_protection_ctrl", ""),
-        "q_securite_circulation": data.get("q_securite_circulation", ""),
-        "q_aux_acces": data.get("q_aux_acces", ""),
-        "q_clotures": data.get("q_clotures", ""),
-
         "verificateur_nom": data.get("verificateur_nom", "").strip(),
         "verificateur_prenom": data.get("verificateur_prenom", "").strip(),
         "verificateur_email": data.get("verificateur_email", "").strip(),
@@ -1038,15 +806,16 @@ def prepare_pv_payload(data: dict) -> dict:
         "verificateur_statut_color": data.get("verificateur_statut_color", "").strip(),
         "verificateur_statut_label": data.get("verificateur_statut_label", "").strip(),
         "verificateur_date_echeance": data.get("verificateur_date_echeance", "").strip(),
-
         "signature": data.get("signature", ""),
         "verification_datetime": data.get("verification_datetime") or datetime.now().isoformat(),
-
         "client_signature": data.get("client_signature", {}),
         "societes_utilisatrices": data.get("societes_utilisatrices", []),
         "email_utilisatrice": data.get("email_utilisatrice", "").strip(),
         "email_mo": data.get("email_mo", "").strip(),
     }
+
+    for key in CHECKLIST_MAP.keys():
+        payload[key] = data.get(key, "")
 
     validate_societes_limit(payload["societes_utilisatrices"])
     return payload
@@ -1113,17 +882,15 @@ async def create_or_regenerate_pv(request: Request):
     try:
         raw_data = await request.json()
         data = prepare_pv_payload(raw_data)
-
         generated = regenerate_pv_files(data)
 
         emails = raw_data.get("emails_destinataires", "").strip()
 
         if emails and generated["pdf_path"]:
-            pdf_url = f"http://127.0.0.1:8000/output/{generated['pdf_path'].name}"
-            signature_url = f"http://127.0.0.1:8000/client-signature/{data['dossier_id']}"
+            pdf_url = f"{APP_PUBLIC_URL}/output/{generated['pdf_path'].name}"
+            signature_url = f"{APP_PUBLIC_URL}/client-signature/{data['dossier_id']}"
 
-            contenu = f"""
-Bonjour,
+            contenu = f"""Bonjour,
 
 Veuillez trouver ci-dessous le PV de réception :
 
@@ -1156,10 +923,7 @@ OMNILUX
 
     except Exception as e:
         traceback.print_exc()
-        return {
-            "success": False,
-            "error": str(e)
-        }
+        return {"success": False, "error": str(e)}
 
 
 # =========================================================
@@ -1207,7 +971,6 @@ async def client_signature_submit(dossier_id: str, request: Request):
         payload = await request.json()
         dossier_data = load_json(paths["json_path"])
         dossier_data = apply_client_signature_payload(dossier_data, payload)
-
         generated = regenerate_pv_files(dossier_data)
 
         return {
@@ -1223,10 +986,7 @@ async def client_signature_submit(dossier_id: str, request: Request):
         raise
     except Exception as e:
         traceback.print_exc()
-        return {
-            "success": False,
-            "error": str(e)
-        }
+        return {"success": False, "error": str(e)}
 
 
 # =========================================================
@@ -1234,11 +994,7 @@ async def client_signature_submit(dossier_id: str, request: Request):
 # =========================================================
 
 @app.post("/api/pv/{dossier_id}/societes/{societe_index}/sign")
-async def sign_societe(
-    dossier_id: str,
-    societe_index: int,
-    request: Request
-):
+async def sign_societe(dossier_id: str, societe_index: int, request: Request):
     try:
         payload = await request.json()
         signature_b64 = payload.get("signature_b64", "")
@@ -1262,7 +1018,6 @@ async def sign_societe(
         societes[societe_index]["date_signature"] = now.strftime("%d/%m/%Y")
         societes[societe_index]["heure_signature"] = now.strftime("%H:%M")
         societes[societe_index]["signature_b64"] = signature_b64
-
         dossier_data["societes_utilisatrices"] = societes
 
         generated = regenerate_pv_files(dossier_data)
@@ -1280,10 +1035,7 @@ async def sign_societe(
         raise
     except Exception as e:
         traceback.print_exc()
-        return {
-            "success": False,
-            "error": str(e)
-        }
+        return {"success": False, "error": str(e)}
 
 
 # =========================================================
@@ -1372,10 +1124,7 @@ async def admin_login(request: Request, password: str = Form(...)):
     return templates.TemplateResponse(
         request=request,
         name="admin_login.html",
-        context={
-            "request": request,
-            "error": "Mot de passe incorrect"
-        }
+        context={"request": request, "error": "Mot de passe incorrect"}
     )
 
 
@@ -1415,10 +1164,7 @@ def liste_verificateurs(request: Request):
     return templates.TemplateResponse(
         request=request,
         name="verificateurs_liste.html",
-        context={
-            "request": request,
-            "verificateurs": verificateurs
-        }
+        context={"request": request, "verificateurs": verificateurs}
     )
 
 

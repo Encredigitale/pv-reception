@@ -29,8 +29,7 @@ from openpyxl.drawing.xdr import XDRPositiveSize2D
 from openpyxl.utils.units import pixels_to_EMU
 
 from PIL import Image as PILImage
-import psycopg2
-from psycopg2.extras import RealDictCursor, Json
+import sqlite3
 
 try:
     import qrcode
@@ -49,9 +48,9 @@ APP_SECRET_KEY = os.getenv("APP_SECRET_KEY", "SUPER_SECRET_KEY_CHANGE_MOI")
 
 APP_PUBLIC_URL = os.getenv("APP_PUBLIC_URL", "http://127.0.0.1:8000").rstrip("/")
 
-# PostgreSQL
-# Sur Railway, définir DATABASE_URL avec l'URL PostgreSQL fournie par Railway.
-DATABASE_URL = os.getenv("DATABASE_URL", "")
+# SQLite - Phase 1 MVP
+# Base de données simple dans un fichier à la racine du projet.
+SQLITE_DB_PATH = Path(os.getenv("SQLITE_DB_PATH", "./echaff.db")).resolve()
 
 SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.office365.com")
 SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
@@ -177,130 +176,149 @@ def find_excel_template() -> Path:
 
 
 # =========================================================
-# HELPERS - POSTGRESQL
+# HELPERS - SQLITE
 # =========================================================
 
 def get_db_connection():
-    if not DATABASE_URL:
-        raise RuntimeError(
-            "DATABASE_URL est manquant. Ajoute la variable DATABASE_URL dans Railway ou ton environnement local."
-        )
-    return psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
+    conn = sqlite3.connect(SQLITE_DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def parse_json_field(value, default):
+    if not value:
+        return default
+    try:
+        return json.loads(value)
+    except Exception:
+        return default
+
+
+def dump_json_field(value):
+    return json.dumps(value if value is not None else {}, ensure_ascii=False)
 
 
 def init_app_db():
     """
-    Initialise les tables métier PostgreSQL.
-    Le script SQL complet est fourni séparément, mais cette fonction sécurise aussi le démarrage.
+    Initialise la base SQLite phase 1.
+    Le fichier echaff.db est créé automatiquement à la racine du projet.
     """
+    SQLITE_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+
     with get_db_connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS societes (
-                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                    nom TEXT NOT NULL DEFAULT '',
-                    siret TEXT DEFAULT '',
-                    adresse TEXT DEFAULT '',
-                    code_postal TEXT DEFAULT '',
-                    ville TEXT DEFAULT '',
-                    pays TEXT DEFAULT 'France',
-                    telephone TEXT DEFAULT '',
-                    email TEXT DEFAULT '',
-                    representant_nom TEXT DEFAULT '',
-                    representant_prenom TEXT DEFAULT '',
-                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-                );
+        cur = conn.cursor()
+        cur.executescript("""
+            CREATE TABLE IF NOT EXISTS societes (
+                id TEXT PRIMARY KEY,
+                nom TEXT NOT NULL DEFAULT '',
+                siret TEXT DEFAULT '',
+                adresse TEXT DEFAULT '',
+                code_postal TEXT DEFAULT '',
+                ville TEXT DEFAULT '',
+                pays TEXT DEFAULT 'France',
+                telephone TEXT DEFAULT '',
+                email TEXT DEFAULT '',
+                representant_nom TEXT DEFAULT '',
+                representant_prenom TEXT DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
 
-                CREATE TABLE IF NOT EXISTS profils (
-                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                    societe_id UUID REFERENCES societes(id) ON DELETE SET NULL,
-                    nom TEXT NOT NULL,
-                    prenom TEXT NOT NULL,
-                    email TEXT NOT NULL,
-                    telephone TEXT DEFAULT '',
-                    role TEXT NOT NULL,
-                    actif BOOLEAN NOT NULL DEFAULT TRUE,
-                    signature_electronique TEXT DEFAULT '',
-                    certification JSONB NOT NULL DEFAULT '{}'::jsonb,
-                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-                );
+            CREATE TABLE IF NOT EXISTS profils (
+                id TEXT PRIMARY KEY,
+                societe_id TEXT,
+                nom TEXT NOT NULL,
+                prenom TEXT NOT NULL,
+                email TEXT NOT NULL,
+                telephone TEXT DEFAULT '',
+                role TEXT NOT NULL,
+                actif INTEGER NOT NULL DEFAULT 1,
+                signature_electronique TEXT DEFAULT '',
+                certification TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (societe_id) REFERENCES societes(id)
+            );
 
-                CREATE TABLE IF NOT EXISTS chantiers (
-                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                    societe_id UUID REFERENCES societes(id) ON DELETE SET NULL,
-                    nom TEXT NOT NULL,
-                    reference_interne TEXT UNIQUE NOT NULL,
-                    adresse_complete TEXT DEFAULT '',
-                    batiment_zone_etage_secteur TEXT DEFAULT '',
-                    client_maitre_ouvrage TEXT DEFAULT '',
-                    date_debut DATE NULL,
-                    date_fin_estimee DATE NULL,
-                    date_fin_reelle DATE NULL,
-                    statut TEXT NOT NULL DEFAULT 'brouillon',
-                    societe_echafaudage_responsable TEXT DEFAULT '',
-                    societes_utilisatrices_autorisees JSONB NOT NULL DEFAULT '[]'::jsonb,
-                    documents_associes JSONB NOT NULL DEFAULT '[]'::jsonb,
-                    historique JSONB NOT NULL DEFAULT '[]'::jsonb,
-                    qr_token TEXT UNIQUE,
-                    qr_code_url TEXT DEFAULT '',
-                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-                );
+            CREATE TABLE IF NOT EXISTS chantiers (
+                id TEXT PRIMARY KEY,
+                societe_id TEXT,
+                nom TEXT NOT NULL,
+                reference_interne TEXT UNIQUE NOT NULL,
+                adresse_complete TEXT DEFAULT '',
+                batiment_zone_etage_secteur TEXT DEFAULT '',
+                client_maitre_ouvrage TEXT DEFAULT '',
+                date_debut TEXT DEFAULT '',
+                date_fin_estimee TEXT DEFAULT '',
+                date_fin_reelle TEXT DEFAULT '',
+                statut TEXT NOT NULL DEFAULT 'brouillon',
+                societe_echafaudage_responsable TEXT DEFAULT '',
+                societes_utilisatrices_autorisees TEXT NOT NULL DEFAULT '[]',
+                documents_associes TEXT NOT NULL DEFAULT '[]',
+                historique TEXT NOT NULL DEFAULT '[]',
+                qr_token TEXT UNIQUE,
+                qr_code_url TEXT DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (societe_id) REFERENCES societes(id)
+            );
 
-                CREATE TABLE IF NOT EXISTS pv_reception (
-                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                    dossier_id TEXT UNIQUE NOT NULL,
-                    numero_pv TEXT NOT NULL,
-                    chantier_id UUID REFERENCES chantiers(id) ON DELETE SET NULL,
-                    chantier_nom TEXT DEFAULT '',
-                    statut_document TEXT NOT NULL DEFAULT 'pv_reception',
-                    excel_file TEXT DEFAULT '',
-                    pdf_file TEXT DEFAULT '',
-                    json_file TEXT DEFAULT '',
-                    client_signature_url TEXT DEFAULT '',
-                    data JSONB NOT NULL DEFAULT '{}'::jsonb,
-                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-                );
+            CREATE TABLE IF NOT EXISTS pv_reception (
+                id TEXT PRIMARY KEY,
+                dossier_id TEXT UNIQUE NOT NULL,
+                numero_pv TEXT NOT NULL,
+                chantier_id TEXT,
+                chantier_nom TEXT DEFAULT '',
+                statut_document TEXT NOT NULL DEFAULT 'pv_reception',
+                excel_file TEXT DEFAULT '',
+                pdf_file TEXT DEFAULT '',
+                json_file TEXT DEFAULT '',
+                client_signature_url TEXT DEFAULT '',
+                data TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (chantier_id) REFERENCES chantiers(id)
+            );
 
-                CREATE TABLE IF NOT EXISTS historique_actions (
-                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                    societe_id UUID REFERENCES societes(id) ON DELETE SET NULL,
-                    chantier_id UUID REFERENCES chantiers(id) ON DELETE SET NULL,
-                    pv_id UUID REFERENCES pv_reception(id) ON DELETE SET NULL,
-                    type_action TEXT NOT NULL,
-                    description TEXT DEFAULT '',
-                    auteur TEXT DEFAULT 'system',
-                    metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
-                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-                );
-            """)
-            conn.commit()
+            CREATE TABLE IF NOT EXISTS historique_actions (
+                id TEXT PRIMARY KEY,
+                societe_id TEXT,
+                chantier_id TEXT,
+                pv_id TEXT,
+                type_action TEXT NOT NULL,
+                description TEXT DEFAULT '',
+                auteur TEXT DEFAULT 'system',
+                metadata TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_profils_role ON profils(role);
+            CREATE INDEX IF NOT EXISTS idx_chantiers_reference ON chantiers(reference_interne);
+            CREATE INDEX IF NOT EXISTS idx_chantiers_statut ON chantiers(statut);
+            CREATE INDEX IF NOT EXISTS idx_pv_chantier_id ON pv_reception(chantier_id);
+        """)
+        conn.commit()
+
+    get_or_create_main_societe_id()
+    print(f"[SQLITE] Base initialisée : {SQLITE_DB_PATH}")
 
 
-def parse_date_or_none(value: str | None):
-    if not value:
-        return None
-    try:
-        return datetime.strptime(value, "%Y-%m-%d").date()
-    except Exception:
-        return None
-
-
-def get_or_create_main_societe_id() -> str | None:
+def get_or_create_main_societe_id() -> str:
+    now = datetime.now().isoformat()
     with get_db_connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute("SELECT id FROM societes ORDER BY created_at ASC LIMIT 1")
-            row = cur.fetchone()
-            if row:
-                return str(row["id"])
+        cur = conn.cursor()
+        cur.execute("SELECT id FROM societes ORDER BY created_at ASC LIMIT 1")
+        row = cur.fetchone()
+        if row:
+            return row["id"]
 
-            cur.execute("INSERT INTO societes (nom) VALUES ('') RETURNING id")
-            new_row = cur.fetchone()
-            conn.commit()
-            return str(new_row["id"])
+        societe_id = uuid4().hex
+        cur.execute("""
+            INSERT INTO societes (id, nom, created_at, updated_at)
+            VALUES (?, '', ?, ?)
+        """, (societe_id, now, now))
+        conn.commit()
+        return societe_id
 
 
 # =========================================================
@@ -1050,26 +1068,40 @@ def load_list_json(path: Path) -> list:
     key = str(path)
 
     with get_db_connection() as conn:
-        with conn.cursor() as cur:
-            if key == str(ECHAFF_PROFILS_FILE):
-                cur.execute("""
-                    SELECT p.*, s.nom AS societe
-                    FROM profils p
-                    LEFT JOIN societes s ON s.id = p.societe_id
-                    ORDER BY p.created_at DESC
-                """)
-                rows = cur.fetchall()
-                return [dict(row) for row in rows]
+        cur = conn.cursor()
 
-            if key == str(ECHAFF_CHANTIERS_FILE):
-                cur.execute("""
-                    SELECT c.*, s.nom AS societe_nom
-                    FROM chantiers c
-                    LEFT JOIN societes s ON s.id = c.societe_id
-                    ORDER BY c.created_at DESC
-                """)
-                rows = cur.fetchall()
-                return [dict(row) for row in rows]
+        if key == str(ECHAFF_PROFILS_FILE):
+            cur.execute("""
+                SELECT p.*, s.nom AS societe
+                FROM profils p
+                LEFT JOIN societes s ON s.id = p.societe_id
+                ORDER BY p.created_at DESC
+            """)
+            rows = cur.fetchall()
+            profils = []
+            for row in rows:
+                item = dict(row)
+                item["actif"] = bool(item.get("actif"))
+                item["certification"] = parse_json_field(item.get("certification"), {})
+                profils.append(item)
+            return profils
+
+        if key == str(ECHAFF_CHANTIERS_FILE):
+            cur.execute("""
+                SELECT c.*, s.nom AS societe_nom
+                FROM chantiers c
+                LEFT JOIN societes s ON s.id = c.societe_id
+                ORDER BY c.created_at DESC
+            """)
+            rows = cur.fetchall()
+            chantiers = []
+            for row in rows:
+                item = dict(row)
+                item["societes_utilisatrices_autorisees"] = parse_json_field(item.get("societes_utilisatrices_autorisees"), [])
+                item["documents_associes"] = parse_json_field(item.get("documents_associes"), [])
+                item["historique"] = parse_json_field(item.get("historique"), [])
+                chantiers.append(item)
+            return chantiers
 
     return []
 
@@ -1077,70 +1109,69 @@ def load_list_json(path: Path) -> list:
 def save_list_json(path: Path, data: list) -> None:
     key = str(path)
     societe_id = get_or_create_main_societe_id()
+    now = datetime.now().isoformat()
 
     with get_db_connection() as conn:
-        with conn.cursor() as cur:
-            if key == str(ECHAFF_PROFILS_FILE):
-                cur.execute("DELETE FROM profils")
-                for item in data:
-                    cur.execute("""
-                        INSERT INTO profils (
-                            id, societe_id, nom, prenom, email, telephone, role, actif,
-                            signature_electronique, certification, created_at, updated_at
-                        ) VALUES (
-                            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, COALESCE(%s::timestamptz, NOW()), NOW()
-                        )
-                    """, (
-                        item.get("id") or str(uuid4()),
-                        societe_id,
-                        item.get("nom", ""),
-                        item.get("prenom", ""),
-                        item.get("email", ""),
-                        item.get("telephone", ""),
-                        item.get("role", ""),
-                        bool(item.get("actif", True)),
-                        item.get("signature_electronique", ""),
-                        Json(item.get("certification", {}) or {}),
-                        item.get("created_at"),
-                    ))
+        cur = conn.cursor()
 
-            elif key == str(ECHAFF_CHANTIERS_FILE):
-                cur.execute("DELETE FROM chantiers")
-                for item in data:
-                    cur.execute("""
-                        INSERT INTO chantiers (
-                            id, societe_id, nom, reference_interne, adresse_complete,
-                            batiment_zone_etage_secteur, client_maitre_ouvrage,
-                            date_debut, date_fin_estimee, date_fin_reelle, statut,
-                            societe_echafaudage_responsable, societes_utilisatrices_autorisees,
-                            documents_associes, historique, qr_token, qr_code_url,
-                            created_at, updated_at
-                        ) VALUES (
-                            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                            COALESCE(%s::timestamptz, NOW()), NOW()
-                        )
-                    """, (
-                        item.get("id") or str(uuid4()),
-                        societe_id,
-                        item.get("nom", ""),
-                        item.get("reference_interne") or generate_next_chantier_reference(),
-                        item.get("adresse_complete", ""),
-                        item.get("batiment_zone_etage_secteur", ""),
-                        item.get("client_maitre_ouvrage", ""),
-                        parse_date_or_none(item.get("date_debut")),
-                        parse_date_or_none(item.get("date_fin_estimee")),
-                        parse_date_or_none(item.get("date_fin_reelle")),
-                        item.get("statut", "brouillon"),
-                        item.get("societe_echafaudage_responsable", ""),
-                        Json(item.get("societes_utilisatrices_autorisees", []) or []),
-                        Json(item.get("documents_associes", []) or []),
-                        Json(item.get("historique", []) or []),
-                        item.get("qr_token"),
-                        item.get("qr_code_url", ""),
-                        item.get("created_at"),
-                    ))
+        if key == str(ECHAFF_PROFILS_FILE):
+            cur.execute("DELETE FROM profils")
+            for item in data:
+                cur.execute("""
+                    INSERT INTO profils (
+                        id, societe_id, nom, prenom, email, telephone, role, actif,
+                        signature_electronique, certification, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    item.get("id") or uuid4().hex,
+                    societe_id,
+                    item.get("nom", ""),
+                    item.get("prenom", ""),
+                    item.get("email", ""),
+                    item.get("telephone", ""),
+                    item.get("role", ""),
+                    1 if item.get("actif", True) else 0,
+                    item.get("signature_electronique", ""),
+                    dump_json_field(item.get("certification", {}) or {}),
+                    item.get("created_at") or now,
+                    now,
+                ))
 
-            conn.commit()
+        elif key == str(ECHAFF_CHANTIERS_FILE):
+            cur.execute("DELETE FROM chantiers")
+            for item in data:
+                cur.execute("""
+                    INSERT INTO chantiers (
+                        id, societe_id, nom, reference_interne, adresse_complete,
+                        batiment_zone_etage_secteur, client_maitre_ouvrage,
+                        date_debut, date_fin_estimee, date_fin_reelle, statut,
+                        societe_echafaudage_responsable, societes_utilisatrices_autorisees,
+                        documents_associes, historique, qr_token, qr_code_url,
+                        created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    item.get("id") or uuid4().hex,
+                    societe_id,
+                    item.get("nom", ""),
+                    item.get("reference_interne") or generate_next_chantier_reference(),
+                    item.get("adresse_complete", ""),
+                    item.get("batiment_zone_etage_secteur", ""),
+                    item.get("client_maitre_ouvrage", ""),
+                    item.get("date_debut") or "",
+                    item.get("date_fin_estimee") or "",
+                    item.get("date_fin_reelle") or "",
+                    item.get("statut", "brouillon"),
+                    item.get("societe_echafaudage_responsable", ""),
+                    dump_json_field(item.get("societes_utilisatrices_autorisees", []) or []),
+                    dump_json_field(item.get("documents_associes", []) or []),
+                    dump_json_field(item.get("historique", []) or []),
+                    item.get("qr_token"),
+                    item.get("qr_code_url", ""),
+                    item.get("created_at") or now,
+                    now,
+                ))
+
+        conn.commit()
 
 
 def load_dict_json(path: Path) -> dict:
@@ -1149,10 +1180,10 @@ def load_dict_json(path: Path) -> dict:
         return {}
 
     with get_db_connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute("SELECT * FROM societes ORDER BY created_at ASC LIMIT 1")
-            row = cur.fetchone()
-            return dict(row) if row else {}
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM societes ORDER BY created_at ASC LIMIT 1")
+        row = cur.fetchone()
+        return dict(row) if row else {}
 
 
 def save_dict_json(path: Path, data: dict) -> None:
@@ -1160,51 +1191,56 @@ def save_dict_json(path: Path, data: dict) -> None:
     if key != str(ECHAFF_SOCIETE_FILE):
         return
 
+    now = datetime.now().isoformat()
     with get_db_connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute("SELECT id FROM societes ORDER BY created_at ASC LIMIT 1")
-            row = cur.fetchone()
+        cur = conn.cursor()
+        cur.execute("SELECT id FROM societes ORDER BY created_at ASC LIMIT 1")
+        row = cur.fetchone()
 
-            if row:
-                cur.execute("""
-                    UPDATE societes SET
-                        nom=%s, siret=%s, adresse=%s, code_postal=%s, ville=%s, pays=%s,
-                        telephone=%s, email=%s, representant_nom=%s, representant_prenom=%s,
-                        updated_at=NOW()
-                    WHERE id=%s
-                """, (
-                    data.get("nom", ""),
-                    data.get("siret", ""),
-                    data.get("adresse", ""),
-                    data.get("code_postal", ""),
-                    data.get("ville", ""),
-                    data.get("pays", "France"),
-                    data.get("telephone", ""),
-                    data.get("email", ""),
-                    data.get("representant_nom", ""),
-                    data.get("representant_prenom", ""),
-                    row["id"],
-                ))
-            else:
-                cur.execute("""
-                    INSERT INTO societes (
-                        nom, siret, adresse, code_postal, ville, pays, telephone, email,
-                        representant_nom, representant_prenom
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                """, (
-                    data.get("nom", ""),
-                    data.get("siret", ""),
-                    data.get("adresse", ""),
-                    data.get("code_postal", ""),
-                    data.get("ville", ""),
-                    data.get("pays", "France"),
-                    data.get("telephone", ""),
-                    data.get("email", ""),
-                    data.get("representant_nom", ""),
-                    data.get("representant_prenom", ""),
-                ))
+        if row:
+            cur.execute("""
+                UPDATE societes SET
+                    nom=?, siret=?, adresse=?, code_postal=?, ville=?, pays=?,
+                    telephone=?, email=?, representant_nom=?, representant_prenom=?,
+                    updated_at=?
+                WHERE id=?
+            """, (
+                data.get("nom", ""),
+                data.get("siret", ""),
+                data.get("adresse", ""),
+                data.get("code_postal", ""),
+                data.get("ville", ""),
+                data.get("pays", "France"),
+                data.get("telephone", ""),
+                data.get("email", ""),
+                data.get("representant_nom", ""),
+                data.get("representant_prenom", ""),
+                now,
+                row["id"],
+            ))
+        else:
+            cur.execute("""
+                INSERT INTO societes (
+                    id, nom, siret, adresse, code_postal, ville, pays, telephone, email,
+                    representant_nom, representant_prenom, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                uuid4().hex,
+                data.get("nom", ""),
+                data.get("siret", ""),
+                data.get("adresse", ""),
+                data.get("code_postal", ""),
+                data.get("ville", ""),
+                data.get("pays", "France"),
+                data.get("telephone", ""),
+                data.get("email", ""),
+                data.get("representant_nom", ""),
+                data.get("representant_prenom", ""),
+                now,
+                now,
+            ))
 
-            conn.commit()
+        conn.commit()
 
 
 def append_historique_chantier(chantier: dict, action: str, auteur: str = "system") -> dict:
@@ -1251,51 +1287,55 @@ def delete_chantier_by_id(chantier_id: str) -> bool:
 
 def get_pvs_for_chantier(chantier_id: str) -> list:
     with get_db_connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT dossier_id, numero_pv, chantier_nom AS chantier, created_at,
-                       excel_file, pdf_file, client_signature_url, statut_document AS statut
-                FROM pv_reception
-                WHERE chantier_id = %s
-                ORDER BY created_at DESC
-            """, (chantier_id,))
-            return [dict(row) for row in cur.fetchall()]
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT dossier_id, numero_pv, chantier_nom AS chantier, created_at,
+                   excel_file, pdf_file, client_signature_url, statut_document AS statut
+            FROM pv_reception
+            WHERE chantier_id = ?
+            ORDER BY created_at DESC
+        """, (chantier_id,))
+        return [dict(row) for row in cur.fetchall()]
 
 
 def save_pv_reception_to_db(dossier_data: dict, generated: dict) -> None:
     chantier_id = dossier_data.get("chantier_id") or None
+    now = datetime.now().isoformat()
 
     with get_db_connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                INSERT INTO pv_reception (
-                    dossier_id, numero_pv, chantier_id, chantier_nom, statut_document,
-                    excel_file, pdf_file, json_file, client_signature_url, data, updated_at
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
-                ON CONFLICT (dossier_id) DO UPDATE SET
-                    numero_pv = EXCLUDED.numero_pv,
-                    chantier_id = EXCLUDED.chantier_id,
-                    chantier_nom = EXCLUDED.chantier_nom,
-                    statut_document = EXCLUDED.statut_document,
-                    excel_file = EXCLUDED.excel_file,
-                    pdf_file = EXCLUDED.pdf_file,
-                    json_file = EXCLUDED.json_file,
-                    client_signature_url = EXCLUDED.client_signature_url,
-                    data = EXCLUDED.data,
-                    updated_at = NOW()
-            """, (
-                dossier_data.get("dossier_id"),
-                dossier_data.get("numero_pv"),
-                chantier_id,
-                dossier_data.get("chantier", ""),
-                dossier_data.get("statut_document", "pv_reception"),
-                f"/output/{generated['xlsx_path'].name}" if generated.get("xlsx_path") else "",
-                f"/output/{generated['pdf_path'].name}" if generated.get("pdf_path") else "",
-                f"/data/{dossier_data.get('dossier_id')}/state.json",
-                f"/client-signature/{dossier_data.get('dossier_id')}",
-                Json(dossier_data),
-            ))
-            conn.commit()
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO pv_reception (
+                id, dossier_id, numero_pv, chantier_id, chantier_nom, statut_document,
+                excel_file, pdf_file, json_file, client_signature_url, data, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(dossier_id) DO UPDATE SET
+                numero_pv = excluded.numero_pv,
+                chantier_id = excluded.chantier_id,
+                chantier_nom = excluded.chantier_nom,
+                statut_document = excluded.statut_document,
+                excel_file = excluded.excel_file,
+                pdf_file = excluded.pdf_file,
+                json_file = excluded.json_file,
+                client_signature_url = excluded.client_signature_url,
+                data = excluded.data,
+                updated_at = excluded.updated_at
+        """, (
+            uuid4().hex,
+            dossier_data.get("dossier_id"),
+            dossier_data.get("numero_pv"),
+            chantier_id,
+            dossier_data.get("chantier", ""),
+            dossier_data.get("statut_document", "pv_reception"),
+            f"/output/{generated['xlsx_path'].name}" if generated.get("xlsx_path") else "",
+            f"/output/{generated['pdf_path'].name}" if generated.get("pdf_path") else "",
+            f"/data/{dossier_data.get('dossier_id')}/state.json",
+            f"/client-signature/{dossier_data.get('dossier_id')}",
+            dump_json_field(dossier_data),
+            now,
+            now,
+        ))
+        conn.commit()
 
 
 def get_notifications_chantier(chantier_id: str) -> list:

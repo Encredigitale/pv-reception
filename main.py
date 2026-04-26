@@ -9,6 +9,7 @@ import io
 import traceback
 import subprocess
 import os
+import stat
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -29,6 +30,10 @@ from openpyxl.drawing.xdr import XDRPositiveSize2D
 from openpyxl.utils.units import pixels_to_EMU
 
 from PIL import Image as PILImage
+from cryptography.fernet import Fernet
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+from base64 import urlsafe_b64encode
 
 try:
     import qrcode
@@ -46,6 +51,10 @@ ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "Omnilux2026")
 APP_SECRET_KEY = os.getenv("APP_SECRET_KEY", "SUPER_SECRET_KEY_CHANGE_MOI")
 
 APP_PUBLIC_URL = os.getenv("APP_PUBLIC_URL", "http://127.0.0.1:8000").rstrip("/")
+
+# Clé utilisée pour chiffrer les fichiers plats.
+# En production Railway, définir SECURE_STORAGE_SECRET dans les variables d'environnement.
+SECURE_STORAGE_SECRET = os.getenv("SECURE_STORAGE_SECRET", APP_SECRET_KEY)
 
 SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.office365.com")
 SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
@@ -90,6 +99,7 @@ ATTENTE_ALIGNMENT = Alignment(horizontal="center", vertical="center", wrap_text=
 BASE_DIR = Path(__file__).resolve().parent
 TEMPLATES_DIR = BASE_DIR / "templates"
 DATA_DIR = BASE_DIR / "data"
+SECURE_DATA_DIR = BASE_DIR / "secure_data"
 OUTPUT_DIR = BASE_DIR / "output"
 SIGNATURES_DIR = BASE_DIR / "signatures"
 
@@ -106,6 +116,7 @@ QR_CODES_DIR = UPLOADS_DIR / "qr_codes"
 for directory in [
     TEMPLATES_DIR,
     DATA_DIR,
+    SECURE_DATA_DIR,
     OUTPUT_DIR,
     SIGNATURES_DIR,
     UPLOADS_DIR,
@@ -167,6 +178,79 @@ def find_excel_template() -> Path:
     raise FileNotFoundError(
         "Aucun modèle Excel trouvé dans templates/. Nom attendu : PV_MODELE.xlsx."
     )
+
+
+# =========================================================
+# HELPERS - FICHIERS PLATS SECURISES
+# =========================================================
+
+def get_secure_storage() -> Fernet:
+    """
+    Génère une clé Fernet stable à partir de SECURE_STORAGE_SECRET.
+    Ne jamais changer SECURE_STORAGE_SECRET après mise en production,
+    sinon les anciens fichiers chiffrés ne seront plus lisibles.
+    """
+    secret = SECURE_STORAGE_SECRET.encode("utf-8")
+    salt = b"echaff-secure-flat-file-v1"
+
+    kdf = PBKDF2HMAC(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=salt,
+        iterations=390000,
+    )
+    key = urlsafe_b64encode(kdf.derive(secret))
+    return Fernet(key)
+
+
+def secure_write_json(path: Path, data) -> None:
+    """
+    Écrit un fichier JSON chiffré avec écriture atomique.
+    Le fichier final n'est pas lisible en clair sur le disque.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    payload = json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")
+    encrypted = get_secure_storage().encrypt(payload)
+
+    tmp_path = path.with_suffix(path.suffix + ".tmp")
+    with tmp_path.open("wb") as f:
+        f.write(encrypted)
+
+    try:
+        os.chmod(tmp_path, stat.S_IRUSR | stat.S_IWUSR)
+    except Exception:
+        pass
+
+    tmp_path.replace(path)
+
+
+def secure_read_json(path: Path, default):
+    """
+    Lit un fichier JSON chiffré.
+    Retourne default si le fichier n'existe pas.
+    """
+    if not path.exists():
+        return default
+
+    with path.open("rb") as f:
+        encrypted = f.read()
+
+    decrypted = get_secure_storage().decrypt(encrypted)
+    return json.loads(decrypted.decode("utf-8"))
+
+
+def secure_backup_file(path: Path) -> None:
+    """
+    Crée une sauvegarde chiffrée avant écrasement, utile en cas d'erreur humaine.
+    """
+    if not path.exists():
+        return
+
+    backup_dir = path.parent / "backups"
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    backup_path = backup_dir / f"{path.stem}_{datetime.now().strftime('%Y%m%d_%H%M%S')}{path.suffix}"
+    shutil.copy2(path, backup_path)
 
 
 # =========================================================
@@ -772,6 +856,7 @@ def get_diplome_status(date_echeance_str: str | None):
 
 
 def prepare_pv_payload(data: dict) -> dict:
+    data = enrich_pv_data_from_chantier(dict(data))
     dossier_id = data.get("dossier_id") or f"pv_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     numero_pv = data.get("numero_pv") or datetime.now().strftime("%Y%m%d%H%M%S")
 
@@ -818,7 +903,7 @@ def prepare_pv_payload(data: dict) -> dict:
         "signature": data.get("signature", ""),
         "verification_datetime": data.get("verification_datetime") or datetime.now().isoformat(),
         "client_signature": data.get("client_signature", {}),
-        "societes_utilisatrices": data.get("societes_utilisatrices", []),
+        "societes_utilisatrices": normalize_societes_utilisatrices_from_payload(data),
         "email_utilisatrice": data.get("email_utilisatrice", "").strip(),
         "email_mo": data.get("email_mo", "").strip(),
     }
@@ -879,12 +964,14 @@ def regenerate_pv_files(dossier_data: dict) -> dict:
 # Objectif : informations société, profils société, chantiers société
 # =========================================================
 
-ECHAFF_DATA_DIR = DATA_DIR / "echaff_phase1"
+# Les données métier phase 1 sont stockées dans des fichiers plats chiffrés.
+# Ce dossier n'est PAS monté en StaticFiles, contrairement à /data, /output ou /uploads.
+ECHAFF_DATA_DIR = SECURE_DATA_DIR / "echaff_phase1"
 ECHAFF_DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-ECHAFF_SOCIETE_FILE = ECHAFF_DATA_DIR / "societe.json"
-ECHAFF_PROFILS_FILE = ECHAFF_DATA_DIR / "profils.json"
-ECHAFF_CHANTIERS_FILE = ECHAFF_DATA_DIR / "chantiers.json"
+ECHAFF_SOCIETE_FILE = ECHAFF_DATA_DIR / "societe.secure"
+ECHAFF_PROFILS_FILE = ECHAFF_DATA_DIR / "profils.secure"
+ECHAFF_CHANTIERS_FILE = ECHAFF_DATA_DIR / "chantiers.secure"
 
 
 ROLES_ECHAFF = [
@@ -908,29 +995,21 @@ STATUTS_CHANTIER = [
 
 
 def load_list_json(path: Path) -> list:
-    if not path.exists():
-        return []
-    with path.open("r", encoding="utf-8") as f:
-        return json.load(f)
+    return secure_read_json(path, [])
 
 
 def save_list_json(path: Path, data: list) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    secure_backup_file(path)
+    secure_write_json(path, data)
 
 
 def load_dict_json(path: Path) -> dict:
-    if not path.exists():
-        return {}
-    with path.open("r", encoding="utf-8") as f:
-        return json.load(f)
+    return secure_read_json(path, {})
 
 
 def save_dict_json(path: Path, data: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    secure_backup_file(path)
+    secure_write_json(path, data)
 
 
 def append_historique_chantier(chantier: dict, action: str, auteur: str = "system") -> dict:
@@ -1067,6 +1146,144 @@ def get_global_notifications() -> list:
             })
 
     return notifications
+
+
+# ---------------------------------------------------------
+# EXTENSION ECHAFF - PHASE 1 : société unique
+# ---------------------------------------------------------
+
+def get_current_societe() -> dict:
+    """
+    Phase 1 : une seule société d'échafaudage.
+    Tous les profils et chantiers sont rattachés à cette société.
+    """
+    return load_dict_json(ECHAFF_SOCIETE_FILE)
+
+
+def get_current_societe_name() -> str:
+    societe = get_current_societe()
+    return societe.get("nom", "")
+
+
+def generate_next_chantier_reference() -> str:
+    """
+    Génère une référence unique incrémentée automatiquement.
+    Format : CH-0001, CH-0002, etc.
+    """
+    chantiers = load_list_json(ECHAFF_CHANTIERS_FILE)
+    max_number = 0
+
+    for chantier in chantiers:
+        ref = str(chantier.get("reference_interne", ""))
+        if ref.startswith("CH-"):
+            try:
+                number = int(ref.replace("CH-", ""))
+                max_number = max(max_number, number)
+            except ValueError:
+                continue
+
+    return f"CH-{max_number + 1:04d}"
+
+
+def get_default_verificateur_certifie() -> dict | None:
+    """
+    Retourne le premier profil certifié actif de la société.
+    Sert au pré-remplissage du PV si aucun vérificateur n'est choisi côté formulaire.
+    """
+    profils = load_list_json(ECHAFF_PROFILS_FILE)
+    societe_nom = get_current_societe_name()
+
+    for profil in profils:
+        certification = profil.get("certification", {}) or {}
+        if (
+            profil.get("actif", True)
+            and profil.get("societe", "") == societe_nom
+            and certification.get("certifie")
+        ):
+            return profil
+
+    return None
+
+
+def enrich_pv_data_from_chantier(data: dict) -> dict:
+    """
+    Si un PV est associé à un chantier, on complète automatiquement :
+    - chantier
+    - adresse
+    - maître d'ouvrage
+    - entreprise de montage
+    - téléphone montage
+    - vérificateur certifié par défaut si besoin
+    """
+    chantier_id = data.get("chantier_id", "")
+    if not chantier_id:
+        return data
+
+    chantier = get_chantier_by_id(chantier_id)
+    if not chantier:
+        return data
+
+    societe = get_current_societe()
+    verificateur = get_default_verificateur_certifie()
+
+    data.setdefault("chantier", chantier.get("nom", ""))
+    data.setdefault("adresse", chantier.get("adresse_complete", ""))
+    data.setdefault("maitre_ouvrage", chantier.get("client_maitre_ouvrage", ""))
+
+    if not data.get("chantier"):
+        data["chantier"] = chantier.get("nom", "")
+    if not data.get("adresse"):
+        data["adresse"] = chantier.get("adresse_complete", "")
+    if not data.get("maitre_ouvrage"):
+        data["maitre_ouvrage"] = chantier.get("client_maitre_ouvrage", "")
+
+    if not data.get("entreprise_montage"):
+        data["entreprise_montage"] = societe.get("nom", "")
+    if not data.get("contact_montage"):
+        data["contact_montage"] = f"{societe.get('representant_prenom', '')} {societe.get('representant_nom', '')}".strip()
+    if not data.get("tel_montage"):
+        data["tel_montage"] = societe.get("telephone", "")
+
+    if verificateur and not data.get("verificateur_nom"):
+        data["verificateur_nom"] = f"{verificateur.get('nom', '')} {verificateur.get('prenom', '')}".strip()
+        data["verificateur_prenom"] = verificateur.get("prenom", "")
+        data["verificateur_email"] = verificateur.get("email", "")
+        data["verificateur_telephone"] = verificateur.get("telephone", "")
+        certification = verificateur.get("certification", {}) or {}
+        data["verificateur_numero_diplome"] = certification.get("reference", "")
+        data["verificateur_date_echeance"] = certification.get("date_validite", "")
+
+    return data
+
+
+def normalize_societes_utilisatrices_from_payload(data: dict) -> list:
+    """
+    Accepte :
+    - une liste societes_utilisatrices envoyée par le nouveau formulaire
+    - ou l'ancien format entreprise_utilisatrice/contact/tel/email
+    """
+    societes = data.get("societes_utilisatrices", [])
+    if isinstance(societes, list) and societes:
+        return societes[:MAX_SOCIETES_UTILISATRICES]
+
+    societe = data.get("entreprise_utilisatrice", "")
+    contact = data.get("contact_utilisatrice", "")
+    telephone = data.get("tel_utilisatrice", "")
+    email = data.get("email_utilisatrice", "")
+
+    if not any([societe, contact, telephone, email]):
+        return []
+
+    return [{
+        "societe": societe,
+        "representant": contact,
+        "telephone": telephone,
+        "email": email,
+        "signed": False,
+        "date_signature": "",
+        "heure_signature": "",
+        "signature_b64": "",
+    }]
 
 
 def generate_qr_code_for_chantier(chantier_id: str) -> str:
@@ -1234,7 +1451,6 @@ async def profil_create(
     prenom: str = Form(...),
     email: str = Form(...),
     telephone: str = Form(""),
-    societe: str = Form(""),
     role: str = Form(...),
     actif: str = Form("oui"),
     certification_intitule: str = Form(""),
@@ -1259,7 +1475,7 @@ async def profil_create(
         "prenom": prenom.strip(),
         "email": email.strip(),
         "telephone": telephone.strip(),
-        "societe": societe.strip(),
+        "societe": get_current_societe_name(),
         "role": role,
         "actif": actif == "oui",
         "signature_electronique": "",
@@ -1300,7 +1516,7 @@ async def api_create_profil(request: Request):
         "prenom": payload.get("prenom", "").strip(),
         "email": payload.get("email", "").strip(),
         "telephone": payload.get("telephone", "").strip(),
-        "societe": payload.get("societe", "").strip(),
+        "societe": get_current_societe_name(),
         "role": role,
         "actif": bool(payload.get("actif", True)),
         "signature_electronique": payload.get("signature_electronique", ""),
@@ -1358,7 +1574,6 @@ def chantier_form(request: Request):
 async def chantier_create(
     request: Request,
     nom: str = Form(...),
-    reference_interne: str = Form(""),
     adresse_complete: str = Form(""),
     batiment_zone_etage_secteur: str = Form(""),
     client_maitre_ouvrage: str = Form(""),
@@ -1377,7 +1592,7 @@ async def chantier_create(
     chantier = {
         "id": uuid4().hex,
         "nom": nom.strip(),
-        "reference_interne": reference_interne.strip(),
+        "reference_interne": generate_next_chantier_reference(),
         "adresse_complete": adresse_complete.strip(),
         "batiment_zone_etage_secteur": batiment_zone_etage_secteur.strip(),
         "client_maitre_ouvrage": client_maitre_ouvrage.strip(),
@@ -1385,7 +1600,7 @@ async def chantier_create(
         "date_fin_estimee": date_fin_estimee.strip(),
         "date_fin_reelle": date_fin_reelle.strip(),
         "statut": statut,
-        "societe_echafaudage_responsable": societe_echafaudage_responsable.strip(),
+        "societe_echafaudage_responsable": get_current_societe_name(),
         "societes_utilisatrices_autorisees": [
             s.strip() for s in societes_utilisatrices_autorisees.split(",") if s.strip()
         ],
@@ -1597,6 +1812,21 @@ def api_get_chantiers():
     return {"success": True, "chantiers": chantiers}
 
 
+@app.get("/api/chantiers/{chantier_id}")
+def api_get_chantier_detail(chantier_id: str):
+    chantier = get_chantier_by_id(chantier_id)
+    if not chantier:
+        raise HTTPException(status_code=404, detail="Chantier introuvable")
+
+    return {
+        "success": True,
+        "chantier": chantier,
+        "societe": get_current_societe(),
+        "verificateur_defaut": get_default_verificateur_certifie(),
+        "pvs_reception": get_pvs_for_chantier(chantier_id),
+    }
+
+
 @app.post("/api/chantiers")
 async def api_create_chantier(request: Request):
     payload = await request.json()
@@ -1610,7 +1840,7 @@ async def api_create_chantier(request: Request):
     chantier = {
         "id": uuid4().hex,
         "nom": payload.get("nom", "").strip(),
-        "reference_interne": payload.get("reference_interne", "").strip(),
+        "reference_interne": generate_next_chantier_reference(),
         "adresse_complete": payload.get("adresse_complete", "").strip(),
         "batiment_zone_etage_secteur": payload.get("batiment_zone_etage_secteur", "").strip(),
         "client_maitre_ouvrage": payload.get("client_maitre_ouvrage", "").strip(),
@@ -1618,7 +1848,7 @@ async def api_create_chantier(request: Request):
         "date_fin_estimee": payload.get("date_fin_estimee", "").strip(),
         "date_fin_reelle": payload.get("date_fin_reelle", "").strip(),
         "statut": statut,
-        "societe_echafaudage_responsable": payload.get("societe_echafaudage_responsable", "").strip(),
+        "societe_echafaudage_responsable": get_current_societe_name(),
         "societes_utilisatrices_autorisees": payload.get("societes_utilisatrices_autorisees", []),
         "documents_associes": payload.get("documents_associes", []),
         "historique": [],
@@ -1641,7 +1871,12 @@ def home(request: Request):
     return templates.TemplateResponse(
         request=request,
         name="index.html",
-        context={"request": request}
+        context={
+            "request": request,
+            "societe": get_current_societe(),
+            "chantiers": load_list_json(ECHAFF_CHANTIERS_FILE),
+            "profils": load_list_json(ECHAFF_PROFILS_FILE),
+        }
     )
 
 
@@ -1653,6 +1888,12 @@ async def create_or_regenerate_pv(request: Request):
         generated = regenerate_pv_files(data)
 
         emails = raw_data.get("emails_destinataires", "").strip()
+        if not emails:
+            emails = "; ".join([
+                s.get("email", "").strip()
+                for s in data.get("societes_utilisatrices", [])
+                if s.get("email", "").strip()
+            ])
 
         if emails and generated["pdf_path"]:
             pdf_url = f"{APP_PUBLIC_URL}/output/{generated['pdf_path'].name}"

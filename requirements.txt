@@ -23,3 +23,4 @@ typing_extensions==4.15.0
 uvicorn==0.44.0
 qrcode[pil]
 cryptography
+psycopg2-binary

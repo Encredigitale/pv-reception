@@ -1260,8 +1260,30 @@ def normalize_societes_utilisatrices_from_payload(data: dict) -> list:
     """
     Accepte :
     - une liste societes_utilisatrices envoyée par le nouveau formulaire
+    - une liste de profils sélectionnés via societes_utilisatrices_profils_ids
     - ou l'ancien format entreprise_utilisatrice/contact/tel/email
     """
+    selected_profile_ids = data.get("societes_utilisatrices_profils_ids", [])
+    if isinstance(selected_profile_ids, list) and selected_profile_ids:
+        profils = load_list_json(ECHAFF_PROFILS_FILE)
+        selected = []
+
+        for profil in profils:
+            if profil.get("id") in selected_profile_ids and profil.get("role") == "societe_utilisatrice":
+                selected.append({
+                    "profil_id": profil.get("id"),
+                    "societe": profil.get("societe", ""),
+                    "representant": f"{profil.get('prenom', '')} {profil.get('nom', '')}".strip(),
+                    "telephone": profil.get("telephone", ""),
+                    "email": profil.get("email", ""),
+                    "signed": False,
+                    "date_signature": "",
+                    "heure_signature": "",
+                    "signature_b64": "",
+                })
+
+        return selected[:MAX_SOCIETES_UTILISATRICES]
+
     societes = data.get("societes_utilisatrices", [])
     if isinstance(societes, list) and societes:
         return societes[:MAX_SOCIETES_UTILISATRICES]
@@ -1428,11 +1450,56 @@ async def api_save_societe(request: Request):
 @app.get("/profils", response_class=HTMLResponse)
 def profils_liste(request: Request):
     profils = load_list_json(ECHAFF_PROFILS_FILE)
+    societe = get_current_societe()
     return templates.TemplateResponse(
         request=request,
         name="profils_liste.html",
-        context={"request": request, "profils": profils, "roles": ROLES_ECHAFF}
+        context={
+            "request": request,
+            "profils": profils,
+            "roles": ROLES_ECHAFF,
+            "societe": societe,
+        }
     )
+
+
+def get_profil_by_id(profil_id: str) -> dict | None:
+    profils = load_list_json(ECHAFF_PROFILS_FILE)
+    for profil in profils:
+        if profil.get("id") == profil_id:
+            return profil
+    return None
+
+
+def save_profil(updated_profil: dict) -> dict:
+    profils = load_list_json(ECHAFF_PROFILS_FILE)
+    for index, profil in enumerate(profils):
+        if profil.get("id") == updated_profil.get("id"):
+            updated_profil["updated_at"] = datetime.now().isoformat()
+            profils[index] = updated_profil
+            save_list_json(ECHAFF_PROFILS_FILE, profils)
+            return updated_profil
+
+    raise HTTPException(status_code=404, detail="Profil introuvable")
+
+
+def delete_profil_by_id(profil_id: str) -> bool:
+    profils = load_list_json(ECHAFF_PROFILS_FILE)
+    new_profils = [p for p in profils if p.get("id") != profil_id]
+
+    if len(new_profils) == len(profils):
+        return False
+
+    save_list_json(ECHAFF_PROFILS_FILE, new_profils)
+    return True
+
+
+def get_profils_societes_utilisatrices() -> list:
+    profils = load_list_json(ECHAFF_PROFILS_FILE)
+    return [
+        profil for profil in profils
+        if profil.get("role") == "societe_utilisatrice" and profil.get("actif", True)
+    ]
 
 
 @app.get("/profils/nouveau", response_class=HTMLResponse)
@@ -1440,7 +1507,12 @@ def profil_form(request: Request):
     return templates.TemplateResponse(
         request=request,
         name="profil_form.html",
-        context={"request": request, "roles": ROLES_ECHAFF}
+        context={
+            "request": request,
+            "roles": ROLES_ECHAFF,
+            "societe": get_current_societe(),
+            "mode": "creation",
+        }
     )
 
 
@@ -1496,9 +1568,92 @@ async def profil_create(
     return RedirectResponse("/profils", status_code=303)
 
 
+@app.get("/profils/{profil_id}/modifier", response_class=HTMLResponse)
+def profil_edit_form(request: Request, profil_id: str):
+    profil = get_profil_by_id(profil_id)
+    if not profil:
+        raise HTTPException(status_code=404, detail="Profil introuvable")
+
+    return templates.TemplateResponse(
+        request=request,
+        name="profil_form.html",
+        context={
+            "request": request,
+            "roles": ROLES_ECHAFF,
+            "profil": profil,
+            "societe": get_current_societe(),
+            "mode": "edition",
+        }
+    )
+
+
+@app.post("/profils/{profil_id}/modifier", response_class=HTMLResponse)
+async def profil_update(
+    request: Request,
+    profil_id: str,
+    nom: str = Form(...),
+    prenom: str = Form(...),
+    email: str = Form(...),
+    telephone: str = Form(""),
+    role: str = Form(...),
+    actif: str = Form("oui"),
+    certification_intitule: str = Form(""),
+    certification_reference: str = Form(""),
+    certification_date_obtention: str = Form(""),
+    certification_date_validite: str = Form(""),
+    certifie: str = Form("non"),
+    certification_document: UploadFile | None = File(None),
+):
+    if role not in ROLES_ECHAFF:
+        raise HTTPException(status_code=400, detail="Rôle invalide")
+
+    profil = get_profil_by_id(profil_id)
+    if not profil:
+        raise HTTPException(status_code=404, detail="Profil introuvable")
+
+    certification = profil.get("certification", {}) or {}
+    certification_document_path = certification.get("document", "")
+
+    if certification_document and certification_document.filename:
+        certification_document_path = save_upload_file(certification_document, DIPLOMES_DIR)
+
+    profil.update({
+        "nom": nom.strip(),
+        "prenom": prenom.strip(),
+        "email": email.strip(),
+        "telephone": telephone.strip(),
+        "societe": get_current_societe_name(),
+        "role": role,
+        "actif": actif == "oui",
+        "certification": {
+            "intitule": certification_intitule.strip(),
+            "reference": certification_reference.strip(),
+            "date_obtention": certification_date_obtention.strip(),
+            "date_validite": certification_date_validite.strip(),
+            "document": certification_document_path,
+            "certifie": certifie == "oui",
+        },
+    })
+
+    save_profil(profil)
+    return RedirectResponse("/profils", status_code=303)
+
+
+@app.post("/profils/{profil_id}/supprimer")
+def profil_delete(profil_id: str):
+    deleted = delete_profil_by_id(profil_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Profil introuvable")
+
+    return RedirectResponse("/profils", status_code=303)
+
+
 @app.get("/api/profils")
-def api_get_profils():
-    return {"success": True, "profils": load_list_json(ECHAFF_PROFILS_FILE)}
+def api_get_profils(role: str = ""):
+    profils = load_list_json(ECHAFF_PROFILS_FILE)
+    if role:
+        profils = [p for p in profils if p.get("role") == role]
+    return {"success": True, "profils": profils}
 
 
 @app.post("/api/profils")
@@ -1534,6 +1689,48 @@ async def api_create_profil(request: Request):
     profils.append(profil)
     save_list_json(ECHAFF_PROFILS_FILE, profils)
     return {"success": True, "profil": profil}
+
+
+@app.put("/api/profils/{profil_id}")
+async def api_update_profil(profil_id: str, request: Request):
+    payload = await request.json()
+    profil = get_profil_by_id(profil_id)
+    if not profil:
+        raise HTTPException(status_code=404, detail="Profil introuvable")
+
+    role = payload.get("role", profil.get("role"))
+    if role not in ROLES_ECHAFF:
+        raise HTTPException(status_code=400, detail="Rôle invalide")
+
+    certification = profil.get("certification", {}) or {}
+    profil.update({
+        "nom": payload.get("nom", profil.get("nom", "")).strip(),
+        "prenom": payload.get("prenom", profil.get("prenom", "")).strip(),
+        "email": payload.get("email", profil.get("email", "")).strip(),
+        "telephone": payload.get("telephone", profil.get("telephone", "")).strip(),
+        "societe": get_current_societe_name(),
+        "role": role,
+        "actif": bool(payload.get("actif", profil.get("actif", True))),
+        "signature_electronique": payload.get("signature_electronique", profil.get("signature_electronique", "")),
+        "certification": {
+            "intitule": payload.get("certification_intitule", certification.get("intitule", "")).strip(),
+            "reference": payload.get("certification_reference", certification.get("reference", "")).strip(),
+            "date_obtention": payload.get("certification_date_obtention", certification.get("date_obtention", "")).strip(),
+            "date_validite": payload.get("certification_date_validite", certification.get("date_validite", "")).strip(),
+            "document": payload.get("certification_document", certification.get("document", "")).strip(),
+            "certifie": bool(payload.get("certifie", certification.get("certifie", False))),
+        },
+    })
+    save_profil(profil)
+    return {"success": True, "profil": profil}
+
+
+@app.delete("/api/profils/{profil_id}")
+def api_delete_profil(profil_id: str):
+    deleted = delete_profil_by_id(profil_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Profil introuvable")
+    return {"success": True}
 
 
 # ---------------------------------------------------------

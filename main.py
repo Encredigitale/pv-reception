@@ -770,6 +770,7 @@ def prepare_pv_payload(data: dict) -> dict:
     payload = {
         "dossier_id": dossier_id,
         "numero_pv": numero_pv,
+        "chantier_id": data.get("chantier_id", "").strip(),
         "chantier": data.get("chantier", ""),
         "adresse": data.get("adresse", ""),
         "date_montage": data.get("date_montage", ""),
@@ -943,17 +944,82 @@ def get_chantier_by_id(chantier_id: str) -> dict | None:
     return None
 
 
+def save_chantier(updated_chantier: dict) -> dict:
+    chantiers = load_list_json(ECHAFF_CHANTIERS_FILE)
+    for index, chantier in enumerate(chantiers):
+        if chantier.get("id") == updated_chantier.get("id"):
+            updated_chantier["updated_at"] = datetime.now().isoformat()
+            chantiers[index] = updated_chantier
+            save_list_json(ECHAFF_CHANTIERS_FILE, chantiers)
+            return updated_chantier
+
+    raise HTTPException(status_code=404, detail="Chantier introuvable")
+
+
+def delete_chantier_by_id(chantier_id: str) -> bool:
+    chantiers = load_list_json(ECHAFF_CHANTIERS_FILE)
+    new_chantiers = [c for c in chantiers if c.get("id") != chantier_id]
+
+    if len(new_chantiers) == len(chantiers):
+        return False
+
+    save_list_json(ECHAFF_CHANTIERS_FILE, new_chantiers)
+    return True
+
+
+def get_pvs_for_chantier(chantier_id: str) -> list:
+    """
+    Recherche les PV générés et associés à un chantier.
+    Association possible via state.json :
+    - chantier_id
+    - ou nom de chantier si l'ancien PV ne possède pas encore chantier_id
+    """
+    chantier = get_chantier_by_id(chantier_id)
+    if not chantier:
+        return []
+
+    pvs = []
+    chantier_nom = chantier.get("nom", "")
+
+    for state_file in DATA_DIR.glob("pv_*/state.json"):
+        try:
+            data = load_json(state_file)
+        except Exception:
+            continue
+
+        same_id = data.get("chantier_id") == chantier_id
+        same_name = chantier_nom and data.get("chantier") == chantier_nom
+
+        if same_id or same_name:
+            dossier_id = data.get("dossier_id") or state_file.parent.name
+            pvs.append({
+                "dossier_id": dossier_id,
+                "numero_pv": data.get("numero_pv", ""),
+                "chantier": data.get("chantier", ""),
+                "created_at": data.get("verification_datetime", data.get("created_at", "")),
+                "excel_file": f"/output/{dossier_id}.xlsx",
+                "pdf_file": f"/output/{dossier_id}.pdf",
+                "client_signature_url": f"/client-signature/{dossier_id}",
+                "statut": data.get("statut_document", "pv_reception"),
+            })
+
+    return sorted(pvs, key=lambda item: item.get("created_at", ""), reverse=True)
+
+
 @app.get("/dashboard", response_class=HTMLResponse)
 def dashboard_echaff(request: Request):
     """
-    Menu phase 1 :
-    - gestion des informations société
-    - gestion des profils de la société
-    - gestion des chantiers de la société
+    Page d'accueil phase 1 avec menu :
+    - informations société : création / mise à jour
+    - liste des chantiers : création, modification, changement de statut, suppression, archivage
+    - accès aux PV de réception par chantier
     """
     societe = load_dict_json(ECHAFF_SOCIETE_FILE)
     profils = load_list_json(ECHAFF_PROFILS_FILE)
     chantiers = load_list_json(ECHAFF_CHANTIERS_FILE)
+
+    chantiers_actifs = [c for c in chantiers if c.get("statut") != "archive"]
+    chantiers_archives = [c for c in chantiers if c.get("statut") == "archive"]
 
     return templates.TemplateResponse(
         request=request,
@@ -963,10 +1029,36 @@ def dashboard_echaff(request: Request):
             "societe": societe,
             "nb_profils": len(profils),
             "nb_chantiers": len(chantiers),
+            "nb_chantiers_actifs": len(chantiers_actifs),
+            "nb_chantiers_archives": len(chantiers_archives),
+            "chantiers": chantiers_actifs,
+            "chantiers_archives": chantiers_archives,
             "roles": ROLES_ECHAFF,
             "statuts_chantier": STATUTS_CHANTIER,
+            "menu": [
+                {
+                    "label": "Informations société",
+                    "description": "Créer ou mettre à jour les informations de la société d’échafaudage.",
+                    "url": "/societe",
+                },
+                {
+                    "label": "Liste des chantiers",
+                    "description": "Créer un chantier, modifier son statut, le supprimer ou l’archiver.",
+                    "url": "/chantiers",
+                },
+                {
+                    "label": "Profils société",
+                    "description": "Gérer les utilisateurs, rôles et certifications.",
+                    "url": "/profils",
+                },
+            ],
         }
     )
+
+
+@app.get("/accueil", response_class=HTMLResponse)
+def accueil_echaff(request: Request):
+    return dashboard_echaff(request)
 
 
 # ---------------------------------------------------------
@@ -1153,10 +1245,19 @@ async def api_create_profil(request: Request):
 @app.get("/chantiers", response_class=HTMLResponse)
 def chantiers_liste(request: Request):
     chantiers = load_list_json(ECHAFF_CHANTIERS_FILE)
+
+    for chantier in chantiers:
+        chantier["pvs_reception"] = get_pvs_for_chantier(chantier.get("id", ""))
+        chantier["nb_pvs"] = len(chantier["pvs_reception"])
+
     return templates.TemplateResponse(
         request=request,
         name="chantiers_liste.html",
-        context={"request": request, "chantiers": chantiers, "statuts": STATUTS_CHANTIER}
+        context={
+            "request": request,
+            "chantiers": chantiers,
+            "statuts": STATUTS_CHANTIER,
+        }
     )
 
 
@@ -1223,11 +1324,116 @@ def chantier_detail(request: Request, chantier_id: str):
     if not chantier:
         raise HTTPException(status_code=404, detail="Chantier introuvable")
 
+    pvs_reception = get_pvs_for_chantier(chantier_id)
+
     return templates.TemplateResponse(
         request=request,
         name="chantier_detail.html",
-        context={"request": request, "chantier": chantier, "statuts": STATUTS_CHANTIER}
+        context={
+            "request": request,
+            "chantier": chantier,
+            "pvs_reception": pvs_reception,
+            "statuts": STATUTS_CHANTIER,
+        }
     )
+
+
+@app.get("/chantiers/{chantier_id}/modifier", response_class=HTMLResponse)
+def chantier_edit_form(request: Request, chantier_id: str):
+    chantier = get_chantier_by_id(chantier_id)
+    if not chantier:
+        raise HTTPException(status_code=404, detail="Chantier introuvable")
+
+    return templates.TemplateResponse(
+        request=request,
+        name="chantier_form.html",
+        context={
+            "request": request,
+            "chantier": chantier,
+            "statuts": STATUTS_CHANTIER,
+            "mode": "edition",
+        }
+    )
+
+
+@app.post("/chantiers/{chantier_id}/modifier", response_class=HTMLResponse)
+async def chantier_update(
+    request: Request,
+    chantier_id: str,
+    nom: str = Form(...),
+    reference_interne: str = Form(""),
+    adresse_complete: str = Form(""),
+    batiment_zone_etage_secteur: str = Form(""),
+    client_maitre_ouvrage: str = Form(""),
+    date_debut: str = Form(""),
+    date_fin_estimee: str = Form(""),
+    date_fin_reelle: str = Form(""),
+    statut: str = Form("brouillon"),
+    societe_echafaudage_responsable: str = Form(""),
+    societes_utilisatrices_autorisees: str = Form(""),
+):
+    if statut not in STATUTS_CHANTIER:
+        raise HTTPException(status_code=400, detail="Statut chantier invalide")
+
+    chantier = get_chantier_by_id(chantier_id)
+    if not chantier:
+        raise HTTPException(status_code=404, detail="Chantier introuvable")
+
+    chantier.update({
+        "nom": nom.strip(),
+        "reference_interne": reference_interne.strip(),
+        "adresse_complete": adresse_complete.strip(),
+        "batiment_zone_etage_secteur": batiment_zone_etage_secteur.strip(),
+        "client_maitre_ouvrage": client_maitre_ouvrage.strip(),
+        "date_debut": date_debut.strip(),
+        "date_fin_estimee": date_fin_estimee.strip(),
+        "date_fin_reelle": date_fin_reelle.strip(),
+        "statut": statut,
+        "societe_echafaudage_responsable": societe_echafaudage_responsable.strip(),
+        "societes_utilisatrices_autorisees": [
+            s.strip() for s in societes_utilisatrices_autorisees.split(",") if s.strip()
+        ],
+    })
+    append_historique_chantier(chantier, "Modification du chantier")
+    save_chantier(chantier)
+
+    return RedirectResponse(f"/chantiers/{chantier_id}", status_code=303)
+
+
+@app.post("/chantiers/{chantier_id}/archiver")
+def chantier_archive(chantier_id: str):
+    chantier = get_chantier_by_id(chantier_id)
+    if not chantier:
+        raise HTTPException(status_code=404, detail="Chantier introuvable")
+
+    chantier["statut"] = "archive"
+    chantier["date_archivage"] = datetime.now().isoformat()
+    append_historique_chantier(chantier, "Archivage du chantier")
+    save_chantier(chantier)
+
+    return RedirectResponse("/chantiers", status_code=303)
+
+
+@app.post("/chantiers/{chantier_id}/supprimer")
+def chantier_delete(chantier_id: str):
+    deleted = delete_chantier_by_id(chantier_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Chantier introuvable")
+
+    return RedirectResponse("/chantiers", status_code=303)
+
+
+@app.get("/chantiers/{chantier_id}/pvs")
+def chantier_pvs(chantier_id: str):
+    chantier = get_chantier_by_id(chantier_id)
+    if not chantier:
+        raise HTTPException(status_code=404, detail="Chantier introuvable")
+
+    return {
+        "success": True,
+        "chantier": chantier,
+        "pvs_reception": get_pvs_for_chantier(chantier_id),
+    }
 
 
 @app.post("/chantiers/{chantier_id}/statut")
@@ -1258,7 +1464,11 @@ async def chantier_update_statut(chantier_id: str, request: Request):
 
 @app.get("/api/chantiers")
 def api_get_chantiers():
-    return {"success": True, "chantiers": load_list_json(ECHAFF_CHANTIERS_FILE)}
+    chantiers = load_list_json(ECHAFF_CHANTIERS_FILE)
+    for chantier in chantiers:
+        chantier["pvs_reception"] = get_pvs_for_chantier(chantier.get("id", ""))
+        chantier["nb_pvs"] = len(chantier["pvs_reception"])
+    return {"success": True, "chantiers": chantiers}
 
 
 @app.post("/api/chantiers")

@@ -1,25 +1,25 @@
 {% extends "base.html" %}
-{% block title %}Nouveau profil - Echaff{% endblock %}
+{% block title %}Nouveau profil - ECHAFF{% endblock %}
 {% block content %}
-  <div class="card"><h1>Créer un profil</h1><p class="muted">Ajoutez un utilisateur de la société ou un intervenant autorisé.</p></div>
-  <div class="card">
-    <form method="post" action="/profils/nouveau" enctype="multipart/form-data">
-      <div class="form-grid">
-        <div class="field"><label>Nom</label><input name="nom" required></div>
-        <div class="field"><label>Prénom</label><input name="prenom" required></div>
-        <div class="field"><label>Email</label><input type="email" name="email" required></div>
-        <div class="field"><label>Téléphone</label><input name="telephone"></div>
-        <div class="field"><label>Société</label><input name="societe"></div>
-        <div class="field"><label>Rôle</label><select name="role" required>{% for role in roles %}<option value="{{ role }}">{{ role }}</option>{% endfor %}</select></div>
-        <div class="field"><label>Actif</label><select name="actif"><option value="oui">Oui</option><option value="non">Non</option></select></div>
-        <div class="field"><label>Certifié</label><select name="certifie"><option value="non">Non</option><option value="oui">Oui</option></select></div>
-        <div class="field"><label>Intitulé certification</label><input name="certification_intitule"></div>
-        <div class="field"><label>Référence certification</label><input name="certification_reference"></div>
-        <div class="field"><label>Date d’obtention</label><input type="date" name="certification_date_obtention"></div>
-        <div class="field"><label>Date de validité</label><input type="date" name="certification_date_validite"></div>
-        <div class="field full"><label>Document justificatif</label><input type="file" name="certification_document"></div>
-      </div>
-      <div class="actions"><button class="btn" type="submit">Créer le profil</button><a class="btn secondary" href="/profils">Annuler</a></div>
-    </form>
-  </div>
+<div class="topbar"><div><h1>Nouveau profil</h1><p>Ajouter un utilisateur et sa certification éventuelle.</p></div></div>
+<div class="card">
+  <form method="post" action="/profils/nouveau" enctype="multipart/form-data">
+    <div class="form-grid">
+      <div><label>Nom</label><input name="nom" required></div>
+      <div><label>Prénom</label><input name="prenom" required></div>
+      <div><label>Email</label><input type="email" name="email" required></div>
+      <div><label>Téléphone</label><input name="telephone"></div>
+      <div><label>Société</label><input name="societe"></div>
+      <div><label>Rôle</label><select name="role">{% for r in roles %}<option value="{{ r }}">{{ r }}</option>{% endfor %}</select></div>
+      <div><label>Actif</label><select name="actif"><option value="oui">Oui</option><option value="non">Non</option></select></div>
+      <div><label>Certifié</label><select name="certifie"><option value="non">Non</option><option value="oui">Oui</option></select></div>
+      <div><label>Certification</label><input name="certification_intitule"></div>
+      <div><label>Référence certification</label><input name="certification_reference"></div>
+      <div><label>Date obtention</label><input type="date" name="certification_date_obtention"></div>
+      <div><label>Date validité</label><input type="date" name="certification_date_validite"></div>
+      <div><label>Document justificatif</label><input type="file" name="certification_document"></div>
+    </div>
+    <br><button class="btn" type="submit">Créer le profil</button>
+  </form>
+</div>
 {% endblock %}

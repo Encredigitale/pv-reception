@@ -1,36 +1,26 @@
 {% extends "base.html" %}
-{% block title %}Profils société - Echaff{% endblock %}
+{% block title %}Profils - ECHAFF{% endblock %}
 {% block content %}
-  <div class="card">
-    <div class="actions" style="justify-content:space-between">
-      <div><h1>Profils société</h1><p class="muted">Utilisateurs, rôles et certifications.</p></div>
-      <a class="btn" href="/profils/nouveau">Créer un profil</a>
-    </div>
-  </div>
-  <div class="card">
-    {% if profils %}
-      <table>
-        <thead><tr><th>Nom</th><th>Email</th><th>Rôle</th><th>Certification</th><th>Statut</th></tr></thead>
-        <tbody>
-        {% for profil in profils %}
-          <tr>
-            <td><strong>{{ profil.prenom }} {{ profil.nom }}</strong><br><span class="muted">{{ profil.societe }}</span></td>
-            <td>{{ profil.email }}<br><span class="muted">{{ profil.telephone }}</span></td>
-            <td><span class="badge">{{ profil.role }}</span></td>
-            <td>
-              {% if profil.certification and profil.certification.certifie %}
-                <span class="badge actif">Certifié</span><br><span class="muted">{{ profil.certification.reference }}</span>
-              {% else %}
-                <span class="badge">Non certifié</span>
-              {% endif %}
-            </td>
-            <td>{% if profil.actif %}<span class="badge actif">Actif</span>{% else %}<span class="badge archive">Inactif</span>{% endif %}</td>
-          </tr>
-        {% endfor %}
-        </tbody>
-      </table>
-    {% else %}
-      <div class="empty">Aucun profil créé.</div>
-    {% endif %}
-  </div>
+<div class="topbar">
+  <div><h1>Profils société</h1><p>Utilisateurs, rôles et certifications.</p></div>
+  <a class="btn" href="/profils/nouveau">+ Nouveau profil</a>
+</div>
+<div class="card">
+  <table>
+    <thead><tr><th>Nom</th><th>Email</th><th>Rôle</th><th>Certification</th><th>Statut</th></tr></thead>
+    <tbody>
+      {% for p in profils %}
+      <tr>
+        <td><strong>{{ p.prenom }} {{ p.nom }}</strong><br><span class="muted">{{ p.societe }}</span></td>
+        <td>{{ p.email }}</td>
+        <td>{{ p.role }}</td>
+        <td>{% if p.certification.certifie %}✅ {{ p.certification.reference }}{% else %}—{% endif %}</td>
+        <td>{% if p.actif %}<span class="badge actif">actif</span>{% else %}<span class="badge archive">inactif</span>{% endif %}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5" class="muted">Aucun profil.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
 {% endblock %}

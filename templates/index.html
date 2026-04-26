@@ -1,867 +1,160 @@
-<!DOCTYPE html>
-<html lang="fr">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>PV Réception Échafaudage</title>
-  <style>
-    body {
-      font-family: Arial, sans-serif;
-      background: #f4f6f8;
-      margin: 0;
-      padding: 20px;
-    }
-
-    .container {
-      max-width: 700px;
-      margin: 0 auto;
-      background: white;
-      border-radius: 12px;
-      padding: 20px;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.08);
-    }
-
-    h1, h2 {
-      margin-top: 0;
-      color: #222;
-    }
-
-    p {
-      color: #555;
-    }
-
-    label {
-      display: block;
-      margin-top: 15px;
-      margin-bottom: 5px;
-      font-weight: bold;
-    }
-
-    input, textarea, button, select {
-      width: 100%;
-      box-sizing: border-box;
-      padding: 12px;
-      border: 1px solid #ccc;
-      border-radius: 8px;
-      font-size: 16px;
-    }
-
-    textarea {
-      min-height: 100px;
-      resize: vertical;
-    }
-
-    button {
-      margin-top: 20px;
-      background: #111;
-      color: white;
-      border: none;
-      cursor: pointer;
-    }
-
-    button:hover {
-      background: #333;
-    }
-
-    canvas {
-      width: 100%;
-      height: 200px;
-      border: 2px solid #000;
-      border-radius: 8px;
-      background: white;
-      margin-top: 10px;
-      touch-action: none;
-    }
-
-    .secondary-btn {
-      background: #666;
-    }
-
-    .secondary-btn:hover {
-      background: #555;
-    }
-
-    .section-title {
-      margin-top: 20px;
-      font-size: 20px;
-      font-weight: bold;
-    }
-
-    .chapter-title {
-      margin-top: 22px;
-      margin-bottom: 10px;
-      font-weight: bold;
-      text-decoration: underline;
-      font-size: 18px;
-    }
-
-    .control-group,
-    .checkbox-group {
-      border: 1px solid #ddd;
-      border-radius: 8px;
-      padding: 12px;
-      margin-bottom: 14px;
-      background: #fafafa;
-    }
-
-    .checkbox-group label {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      margin: 8px 0;
-      font-weight: normal;
-    }
-
-    .checkbox-group input[type="checkbox"] {
-      width: 20px;
-      height: 20px;
-      margin: 0;
-      flex: 0 0 20px;
-    }
-
-    .checkbox-group span {
-      display: inline-block;
-    }
-
-    .suggestions-box {
-      border: 1px solid #ccc;
-      border-radius: 8px;
-      margin-top: 6px;
-      background: #fff;
-      display: none;
-      overflow: hidden;
-    }
-
-    .suggestion-item {
-      padding: 10px;
-      cursor: pointer;
-      border-bottom: 1px solid #eee;
-    }
-
-    .suggestion-item:hover {
-      background: #f3f7fb;
-    }
-
-    .verificateur-info {
-      margin-top: 12px;
-      display: none;
-      padding: 12px;
-      border-radius: 8px;
-      background: #f7f7f7;
-      border: 1px solid #ddd;
-    }
-
-    .status-badge {
-      display: inline-block;
-      padding: 6px 10px;
-      border-radius: 999px;
-      color: white;
-      font-weight: bold;
-      font-size: 12px;
-    }
-
-    .green {
-      background: #2e7d32;
-    }
-
-    .orange {
-      background: #ef6c00;
-    }
-
-    .red {
-      background: #c62828;
-    }
-
-    .grey {
-      background: #757575;
-    }
-
-    .json-preview {
-      margin-top: 16px;
-      background: #111;
-      color: #0f0;
-      padding: 12px;
-      border-radius: 8px;
-      font-size: 12px;
-      white-space: pre-wrap;
-      word-break: break-word;
-      max-height: 300px;
-      overflow: auto;
-      display: none;
-    }
-  </style>
-</head>
-<body>
-  <div class="container">
+{% extends "base.html" %}
+{% block title %}Créer un PV - ECHAFF{% endblock %}
+{% block extra_head %}
+<style>
+  canvas{width:100%;height:200px;border:2px solid #0f172a;border-radius:16px;background:white;touch-action:none}
+  .section-title{font-size:20px;font-weight:900;margin:28px 0 12px}
+  .chapter-title{font-size:16px;font-weight:900;text-decoration:underline;margin:20px 0 10px}
+  .control-group,.checkbox-group{border:1px solid var(--line);border-radius:18px;padding:16px;background:#f8fafc;margin-bottom:14px}
+  .checkbox-group label{display:flex;align-items:center;gap:10px;font-weight:600;margin:8px 0}
+  .checkbox-group input{width:18px}
+  .suggestions-box{border:1px solid var(--line);border-radius:14px;background:#fff;display:none;overflow:hidden;margin-top:8px}
+  .suggestion-item{padding:12px;cursor:pointer;border-bottom:1px solid var(--line)}
+  .suggestion-item:hover{background:#eef4ff}
+  .verificateur-info{display:none;margin-top:12px;padding:14px;border-radius:16px;background:#f8fafc;border:1px solid var(--line)}
+  .status-badge{display:inline-flex;padding:6px 10px;border-radius:999px;color:white;font-weight:800;font-size:12px}
+  .green{background:#16a34a}.orange{background:#f97316}.red{background:#dc2626}.grey{background:#64748b}
+  .json-preview{margin-top:16px;background:#0b1220;color:#22c55e;padding:12px;border-radius:14px;font-size:12px;white-space:pre-wrap;display:none;max-height:300px;overflow:auto}
+</style>
+{% endblock %}
+{% block content %}
+<div class="topbar">
+  <div>
     <h1>PV de réception d’échafaudage</h1>
-    <p>Formulaire du vérificateur</p>
+    <p>Formulaire du vérificateur — génération Excel/PDF, signature et envoi email.</p>
+  </div>
+  <div class="actions">
+    <a class="btn secondary" href="/dashboard">Accueil</a>
+    <a class="btn secondary" href="/chantiers">Chantiers</a>
+  </div>
+</div>
 
-    <form id="pvForm">
-      <label for="chantier">Nom du chantier</label>
-      <input type="text" id="chantier" name="chantier" placeholder="Ex : Résidence Les Tilleuls" />
+<div class="card">
+<form id="pvForm">
+  <input type="hidden" id="chantier_id" name="chantier_id" />
 
-      <label for="adresse">Adresse du chantier</label>
-      <input type="text" id="adresse" name="adresse" placeholder="Ex : 12 rue des Acacias, Metz" />
-
-      <label for="date_montage">Date du montage</label>
-      <input type="date" id="date_montage" name="date_montage" />
-
-      <label for="maitre_ouvrage">Maître d’ouvrage</label>
-      <input type="text" id="maitre_ouvrage" name="maitre_ouvrage" />
-
-      <label for="contact_mo">Personne de contact (maître d’ouvrage)</label>
-      <input type="text" id="contact_mo" name="contact_mo" />
-
-      <label for="tel_mo">Téléphone (maître d’ouvrage)</label>
-      <input type="text" id="tel_mo" name="tel_mo" />
-
-      <label for="entreprise_montage">Entreprise de montage</label>
-      <input type="text" id="entreprise_montage" name="entreprise_montage" />
-
-      <label for="contact_montage">Personne de contact (entreprise de montage)</label>
-      <input type="text" id="contact_montage" name="contact_montage" />
-
-      <label for="tel_montage">Téléphone (entreprise de montage)</label>
-      <input type="text" id="tel_montage" name="tel_montage" />
-
-      <label for="entreprise_utilisatrice">Entreprise utilisatrice ou maître d’œuvre</label>
-      <input type="text" id="entreprise_utilisatrice" name="entreprise_utilisatrice" />
-
-      <label for="contact_utilisatrice">Personne de contact (entreprise utilisatrice / maître d’œuvre)</label>
-      <input type="text" id="contact_utilisatrice" name="contact_utilisatrice" />
-
-      <label for="tel_utilisatrice">Téléphone (entreprise utilisatrice / maître d’œuvre)</label>
-      <input type="text" id="tel_utilisatrice" name="tel_utilisatrice" />
-
-      <div class="section-title">Type d’échafaudage</div>
-
-      <div class="checkbox-group">
-        <label><input type="checkbox" id="type_facade"><span>Échafaudage de façade</span></label>
-        <label><input type="checkbox" id="type_recueil"><span>Échafaudage de recueil</span></label>
-        <label><input type="checkbox" id="type_filet"><span>Habillage / Filet</span></label>
-        <label><input type="checkbox" id="type_bache"><span>Habillage / Bâche</span></label>
-        <label><input type="checkbox" id="type_plateforme"><span>Plate-forme de travail</span></label>
-        <label><input type="checkbox" id="type_escaliers"><span>Tour d’escaliers</span></label>
-        <label><input type="checkbox" id="type_toit"><span>Toit de protection</span></label>
-        <label><input type="checkbox" id="type_toiture"><span>Échafaudage de recueil toiture</span></label>
-      </div>
-
-      <label for="echafaudages_speciaux">Échafaudages spéciaux</label>
-      <input type="text" id="echafaudages_speciaux" name="echafaudages_speciaux" />
-
-      <div class="section-title">Classe de charge</div>
-      <select id="classe_charge" name="classe_charge">
-        <option value="">-- choisir --</option>
-        <option value="150">150</option>
-        <option value="200">200</option>
-        <option value="300">300</option>
-        <option value="450">450</option>
-        <option value="600">600</option>
-      </select>
-
-      <div class="section-title">Classe de largeur</div>
-      <select id="classe_largeur" name="classe_largeur">
-        <option value="">-- choisir --</option>
-        <option value="W06">W 06</option>
-        <option value="W09">W 09</option>
-        <option value="W">W</option>
-      </select>
-
-      <label for="largeur_libre">Largeur libre (si W)</label>
-      <input type="text" id="largeur_libre" name="largeur_libre" />
-
-      <label for="restriction_utilisation">Restriction d’utilisation</label>
-      <input type="text" id="restriction_utilisation" name="restriction_utilisation" />
-
-      <div class="section-title">Liste de contrôle</div>
-
-      <div class="chapter-title">Stabilité</div>
-      <div class="control-group">
-        <label for="q_apparentement_intacts">Apparemment intacts</label>
-        <select id="q_apparentement_intacts" name="q_apparentement_intacts">
-          <option value="">-- choisir --</option>
-          <option value="oui">Oui</option>
-          <option value="non">Non</option>
-          <option value="na">Non applicable</option>
-        </select>
-
-        <label for="q_resistance_support">Résistance de la surface de support</label>
-        <select id="q_resistance_support" name="q_resistance_support">
-          <option value="">-- choisir --</option>
-          <option value="oui">Oui</option>
-          <option value="non">Non</option>
-          <option value="na">Non applicable</option>
-        </select>
-
-        <label for="q_verins_reglage">Vérins de réglage - Longueur de sortie</label>
-        <select id="q_verins_reglage" name="q_verins_reglage">
-          <option value="">-- choisir --</option>
-          <option value="oui">Oui</option>
-          <option value="non">Non</option>
-          <option value="na">Non applicable</option>
-        </select>
-
-        <label for="q_contreventements">Contreventements / diagonales</label>
-        <select id="q_contreventements" name="q_contreventements">
-          <option value="">-- choisir --</option>
-          <option value="oui">Oui</option>
-          <option value="non">Non</option>
-          <option value="na">Non applicable</option>
-        </select>
-
-        <label for="q_traverses_longitudinales">Traverses longitudinales - au niveau du pied</label>
-        <select id="q_traverses_longitudinales" name="q_traverses_longitudinales">
-          <option value="">-- choisir --</option>
-          <option value="oui">Oui</option>
-          <option value="non">Non</option>
-          <option value="na">Non applicable</option>
-        </select>
-
-        <label for="q_poutres_treillis">Poutres en treillis</label>
-        <select id="q_poutres_treillis" name="q_poutres_treillis">
-          <option value="">-- choisir --</option>
-          <option value="oui">Oui</option>
-          <option value="non">Non</option>
-          <option value="na">Non applicable</option>
-        </select>
-
-        <label for="q_ancrages_nombre">Ancrages - NOMBRE</label>
-        <input type="number" id="q_ancrages_nombre" name="q_ancrages_nombre" min="0" step="1" />
-      </div>
-
-      <div class="chapter-title">Planchers</div>
-      <div class="control-group">
-        <label for="q_niveaux_recouverts">Niveaux - recouverts / sécurité du plancher</label>
-        <select id="q_niveaux_recouverts" name="q_niveaux_recouverts">
-          <option value="">-- choisir --</option>
-          <option value="oui">Oui</option>
-          <option value="non">Non</option>
-          <option value="na">Non applicable</option>
-        </select>
-
-        <label for="q_planchers_compris">Planchers - compris plancher de console</label>
-        <select id="q_planchers_compris" name="q_planchers_compris">
-          <option value="">-- choisir --</option>
-          <option value="oui">Oui</option>
-          <option value="non">Non</option>
-          <option value="na">Non applicable</option>
-        </select>
-
-        <label for="q_au_niveau_des_angles">Au niveau des angles - sur toute la largeur</label>
-        <select id="q_au_niveau_des_angles" name="q_au_niveau_des_angles">
-          <option value="">-- choisir --</option>
-          <option value="oui">Oui</option>
-          <option value="non">Non</option>
-          <option value="na">Non applicable</option>
-        </select>
-
-        <label for="q_madriers">Madriers d’échaf. - section, appui, état</label>
-        <select id="q_madriers" name="q_madriers">
-          <option value="">-- choisir --</option>
-          <option value="oui">Oui</option>
-          <option value="non">Non</option>
-          <option value="na">Non applicable</option>
-        </select>
-
-        <label for="q_ouvertures">Ouvertures - entre les planchers</label>
-        <select id="q_ouvertures" name="q_ouvertures">
-          <option value="">-- choisir --</option>
-          <option value="oui">Oui</option>
-          <option value="non">Non</option>
-          <option value="na">Non applicable</option>
-        </select>
-      </div>
-
-      <div class="chapter-title">Sécurité de travail et sécurité opérationnelle</div>
-      <div class="control-group">
-        <label for="q_dispositifs_securite">Dispositifs de sécurité - garde-corps, lisses</label>
-        <select id="q_dispositifs_securite" name="q_dispositifs_securite">
-          <option value="">-- choisir --</option>
-          <option value="oui">Oui</option>
-          <option value="non">Non</option>
-          <option value="na">Non applicable</option>
-        </select>
-
-        <label for="q_distance_mur">Distance par rapport au mur ≤ 0,30 m</label>
-        <select id="q_distance_mur" name="q_distance_mur">
-          <option value="">-- choisir --</option>
-          <option value="oui">Oui</option>
-          <option value="non">Non</option>
-          <option value="na">Non applicable</option>
-        </select>
-
-        <label for="q_garde_corps_interieur">Garde-corps intérieur complet</label>
-        <select id="q_garde_corps_interieur" name="q_garde_corps_interieur">
-          <option value="">-- choisir --</option>
-          <option value="oui">Oui</option>
-          <option value="non">Non</option>
-          <option value="na">Non applicable</option>
-        </select>
-
-        <label for="q_montees_acces">Montées, accès - distance ≤ 25 m</label>
-        <select id="q_montees_acces" name="q_montees_acces">
-          <option value="">-- choisir --</option>
-          <option value="oui">Oui</option>
-          <option value="non">Non</option>
-          <option value="na">Non applicable</option>
-        </select>
-
-        <label for="q_tour_escaliers">Tour d’escaliers, escalier d’échafaudage</label>
-        <select id="q_tour_escaliers" name="q_tour_escaliers">
-          <option value="">-- choisir --</option>
-          <option value="oui">Oui</option>
-          <option value="non">Non</option>
-          <option value="na">Non applicable</option>
-        </select>
-
-        <label for="q_echelle_appui">Échelle d’appui ≤ 5 m</label>
-        <select id="q_echelle_appui" name="q_echelle_appui">
-          <option value="">-- choisir --</option>
-          <option value="oui">Oui</option>
-          <option value="non">Non</option>
-          <option value="na">Non applicable</option>
-        </select>
-
-        <label for="q_exigences_recueil">Exigences pour échafaudages de recueil</label>
-        <select id="q_exigences_recueil" name="q_exigences_recueil">
-          <option value="">-- choisir --</option>
-          <option value="oui">Oui</option>
-          <option value="non">Non</option>
-          <option value="na">Non applicable</option>
-        </select>
-
-        <label for="q_conduites_tension">Conduites sous tension - déconnectées</label>
-        <select id="q_conduites_tension" name="q_conduites_tension">
-          <option value="">-- choisir --</option>
-          <option value="oui">Oui</option>
-          <option value="non">Non</option>
-          <option value="na">Non applicable</option>
-        </select>
-
-        <label for="q_ecran_protection">Écran de protection</label>
-        <select id="q_ecran_protection" name="q_ecran_protection">
-          <option value="">-- choisir --</option>
-          <option value="oui">Oui</option>
-          <option value="non">Non</option>
-          <option value="na">Non applicable</option>
-        </select>
-
-        <label for="q_toit_protection_ctrl">Toit de protection</label>
-        <select id="q_toit_protection_ctrl" name="q_toit_protection_ctrl">
-          <option value="">-- choisir --</option>
-          <option value="oui">Oui</option>
-          <option value="non">Non</option>
-          <option value="na">Non applicable</option>
-        </select>
-
-        <label for="q_securite_circulation">Sécurité de la circulation - éclairage</label>
-        <select id="q_securite_circulation" name="q_securite_circulation">
-          <option value="">-- choisir --</option>
-          <option value="oui">Oui</option>
-          <option value="non">Non</option>
-          <option value="na">Non applicable</option>
-        </select>
-      </div>
-
-      <div class="chapter-title">Procès-verbal</div>
-      <div class="control-group">
-        <label for="q_aux_acces">Aux accès</label>
-        <select id="q_aux_acces" name="q_aux_acces">
-          <option value="">-- choisir --</option>
-          <option value="oui">Oui</option>
-          <option value="non">Non</option>
-          <option value="na">Non applicable</option>
-        </select>
-      </div>
-
-      <div class="chapter-title">Clôtures</div>
-      <div class="control-group">
-        <label for="q_clotures">Accès interdit à toute personne non autorisée</label>
-        <select id="q_clotures" name="q_clotures">
-          <option value="">-- choisir --</option>
-          <option value="oui">Oui</option>
-          <option value="non">Non</option>
-          <option value="na">Non applicable</option>
-        </select>
-      </div>
-
-      <div class="chapter-title">Type d'entreprise</div>
-      <div class="control-group">
-        <label for="type_entreprise">Choix :</label>
-        <select id="type_entreprise" name="type_entreprise">
-          <option value="">-- choisir --</option>
-          <option value="montage">Entreprise de montage</option>
-          <option value="propre">Entreprise de montage pour usage propre</option>
-        </select>
-      </div>
-
-      <label for="observations">Observations</label>
-      <textarea id="observations" name="observations" placeholder="Tapez vos remarques ici"></textarea>
-
-      <div class="chapter-title">Validation</div>
-      <div class="control-group">
-        <label for="verificateur_nom">Nom / prénom du vérificateur</label>
-        <input type="text" id="verificateur_nom" name="verificateur_nom" autocomplete="off" />
-
-        <div id="verificateur_suggestions" class="suggestions-box"></div>
-
-        <div id="verificateur_info" class="verificateur-info">
-          <p><strong>Email :</strong> <span id="info_email"></span></p>
-          <p><strong>Téléphone :</strong> <span id="info_telephone"></span></p>
-          <p><strong>N° diplôme :</strong> <span id="info_numero_diplome"></span></p>
-          <p><strong>Date échéance :</strong> <span id="info_date_echeance"></span></p>
-          <p>
-            <strong>Statut :</strong>
-            <span id="info_statut" class="status-badge grey"></span>
-          </p>
-        </div>
-      </div>
-
-      <h2>Signature</h2>
-      <canvas id="signatureCanvas"></canvas>
-
-      <button type="button" class="secondary-btn" id="clearBtn">Effacer la signature</button>
-
-      <label for="emails_destinataires">Adresse(s) mail destinataire(s)</label>
-      <input 
-        type="text" 
-        id="emails_destinataires" 
-        name="emails_destinataires"
-        placeholder="client@email.com; autre@email.com"
-      />
-      <small>Vous pouvez saisir plusieurs emails séparés par ; ou ,</small>
-
-      <button type="button" class="secondary-btn" id="previewJsonBtn" style="display:none;">Vérifier le JSON</button>
-      <button type="submit">Valider</button>
-
-      <div id="jsonPreview" class="json-preview"></div>
-
-      <input type="hidden" id="verificateur_id" name="verificateur_id">
-      <input type="hidden" id="verificateur_prenom" name="verificateur_prenom">
-      <input type="hidden" id="verificateur_email" name="verificateur_email">
-      <input type="hidden" id="verificateur_telephone" name="verificateur_telephone">
-      <input type="hidden" id="verificateur_numero_diplome" name="verificateur_numero_diplome">
-      <input type="hidden" id="verificateur_lien_diplome" name="verificateur_lien_diplome">
-      <input type="hidden" id="verificateur_statut_color" name="verificateur_statut_color">
-      <input type="hidden" id="verificateur_statut_label" name="verificateur_statut_label">
-      <input type="hidden" id="verificateur_date_echeance" name="verificateur_date_echeance">
-    </form>
+  <div class="section-title">Informations chantier</div>
+  <div class="form-grid">
+    <div><label for="chantier">Nom du chantier</label><input type="text" id="chantier" name="chantier" placeholder="Ex : Résidence Les Tilleuls" /></div>
+    <div><label for="adresse">Adresse du chantier</label><input type="text" id="adresse" name="adresse" placeholder="Ex : 12 rue des Acacias, Metz" /></div>
+    <div><label for="date_montage">Date du montage</label><input type="date" id="date_montage" name="date_montage" /></div>
+    <div><label for="maitre_ouvrage">Maître d’ouvrage</label><input type="text" id="maitre_ouvrage" name="maitre_ouvrage" /></div>
+    <div><label for="contact_mo">Personne de contact maître d’ouvrage</label><input type="text" id="contact_mo" name="contact_mo" /></div>
+    <div><label for="tel_mo">Téléphone maître d’ouvrage</label><input type="text" id="tel_mo" name="tel_mo" /></div>
+    <div><label for="entreprise_montage">Entreprise de montage</label><input type="text" id="entreprise_montage" name="entreprise_montage" /></div>
+    <div><label for="contact_montage">Contact entreprise de montage</label><input type="text" id="contact_montage" name="contact_montage" /></div>
+    <div><label for="tel_montage">Téléphone montage</label><input type="text" id="tel_montage" name="tel_montage" /></div>
+    <div><label for="entreprise_utilisatrice">Entreprise utilisatrice / maître d’œuvre</label><input type="text" id="entreprise_utilisatrice" name="entreprise_utilisatrice" /></div>
+    <div><label for="contact_utilisatrice">Contact utilisatrice</label><input type="text" id="contact_utilisatrice" name="contact_utilisatrice" /></div>
+    <div><label for="tel_utilisatrice">Téléphone utilisatrice</label><input type="text" id="tel_utilisatrice" name="tel_utilisatrice" /></div>
   </div>
 
-  <script>
-    const form = document.getElementById("pvForm");
-    const canvas = document.getElementById("signatureCanvas");
-    const clearBtn = document.getElementById("clearBtn");
-    const previewJsonBtn = document.getElementById("previewJsonBtn");
-    const jsonPreview = document.getElementById("jsonPreview");
-    const ctx = canvas.getContext("2d");
+  <div class="section-title">Type d’échafaudage</div>
+  <div class="checkbox-group">
+    <label><input type="checkbox" id="type_facade"><span>Échafaudage de façade</span></label>
+    <label><input type="checkbox" id="type_recueil"><span>Échafaudage de recueil</span></label>
+    <label><input type="checkbox" id="type_filet"><span>Habillage / Filet</span></label>
+    <label><input type="checkbox" id="type_bache"><span>Habillage / Bâche</span></label>
+    <label><input type="checkbox" id="type_plateforme"><span>Plate-forme de travail</span></label>
+    <label><input type="checkbox" id="type_escaliers"><span>Tour d’escaliers</span></label>
+    <label><input type="checkbox" id="type_toit"><span>Toit de protection</span></label>
+    <label><input type="checkbox" id="type_toiture"><span>Échafaudage de recueil toiture</span></label>
+  </div>
 
-    function resizeCanvas() {
-      const rect = canvas.getBoundingClientRect();
-      canvas.width = rect.width;
-      canvas.height = 200;
-      ctx.fillStyle = "white";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.strokeStyle = "black";
-      ctx.lineWidth = 2;
-      ctx.lineCap = "round";
-    }
+  <div class="form-grid">
+    <div><label for="echafaudages_speciaux">Échafaudages spéciaux</label><input type="text" id="echafaudages_speciaux" name="echafaudages_speciaux" /></div>
+    <div><label for="restriction_utilisation">Restriction d’utilisation</label><input type="text" id="restriction_utilisation" name="restriction_utilisation" /></div>
+    <div><label>Classe de charge</label><select id="classe_charge"><option value="">-- choisir --</option><option value="150">150</option><option value="200">200</option><option value="300">300</option><option value="450">450</option><option value="600">600</option></select></div>
+    <div><label>Classe de largeur</label><select id="classe_largeur"><option value="">-- choisir --</option><option value="W06">W 06</option><option value="W09">W 09</option><option value="W">W</option></select></div>
+    <div><label for="largeur_libre">Largeur libre</label><input type="text" id="largeur_libre" /></div>
+    <div><label for="type_entreprise">Type d'entreprise</label><select id="type_entreprise"><option value="">-- choisir --</option><option value="montage">Entreprise de montage</option><option value="propre">Entreprise de montage pour usage propre</option></select></div>
+  </div>
 
-    resizeCanvas();
-    window.addEventListener("resize", resizeCanvas);
+  <div class="section-title">Liste de contrôle</div>
+  <div id="checklist"></div>
 
-    let drawing = false;
+  <label for="observations">Observations</label>
+  <textarea id="observations" placeholder="Tapez vos remarques ici"></textarea>
 
-    function getPosition(e) {
-      const rect = canvas.getBoundingClientRect();
-      const touch = e.touches ? e.touches[0] : e;
-      return {
-        x: touch.clientX - rect.left,
-        y: touch.clientY - rect.top
-      };
-    }
+  <div class="section-title">Validation</div>
+  <div class="control-group">
+    <label for="verificateur_nom">Nom / prénom du vérificateur</label>
+    <input type="text" id="verificateur_nom" autocomplete="off" />
+    <div id="verificateur_suggestions" class="suggestions-box"></div>
+    <div id="verificateur_info" class="verificateur-info">
+      <p><strong>Email :</strong> <span id="info_email"></span></p>
+      <p><strong>Téléphone :</strong> <span id="info_telephone"></span></p>
+      <p><strong>N° diplôme :</strong> <span id="info_numero_diplome"></span></p>
+      <p><strong>Date échéance :</strong> <span id="info_date_echeance"></span></p>
+      <p><strong>Statut :</strong> <span id="info_statut" class="status-badge grey"></span></p>
+    </div>
+  </div>
 
-    function start(e) {
-      drawing = true;
-      const pos = getPosition(e);
-      ctx.beginPath();
-      ctx.moveTo(pos.x, pos.y);
-      e.preventDefault();
-    }
+  <h2>Signature</h2>
+  <canvas id="signatureCanvas"></canvas>
+  <button type="button" class="btn secondary" id="clearBtn">Effacer la signature</button>
 
-    function draw(e) {
-      if (!drawing) return;
-      const pos = getPosition(e);
-      ctx.lineTo(pos.x, pos.y);
-      ctx.stroke();
-      e.preventDefault();
-    }
+  <label for="emails_destinataires">Adresse(s) mail destinataire(s)</label>
+  <input type="text" id="emails_destinataires" placeholder="client@email.com; autre@email.com" />
 
-    function stop(e) {
-      drawing = false;
-      e.preventDefault();
-    }
+  <div class="actions" style="margin-top:20px">
+    <button class="btn" type="submit">Valider et générer</button>
+    <button type="button" class="btn secondary" id="previewJsonBtn">Vérifier le JSON</button>
+  </div>
+  <div id="jsonPreview" class="json-preview"></div>
 
-    canvas.addEventListener("mousedown", start);
-    canvas.addEventListener("mousemove", draw);
-    canvas.addEventListener("mouseup", stop);
-    canvas.addEventListener("mouseleave", stop);
+  <input type="hidden" id="verificateur_id"><input type="hidden" id="verificateur_prenom"><input type="hidden" id="verificateur_email"><input type="hidden" id="verificateur_telephone"><input type="hidden" id="verificateur_numero_diplome"><input type="hidden" id="verificateur_lien_diplome"><input type="hidden" id="verificateur_statut_color"><input type="hidden" id="verificateur_statut_label"><input type="hidden" id="verificateur_date_echeance">
+</form>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+const checklistItems = [
+  ["q_apparentement_intacts","Apparemment intacts"],["q_resistance_support","Résistance de la surface de support"],["q_verins_reglage","Vérins de réglage"],["q_contreventements","Contreventements / diagonales"],["q_traverses_longitudinales","Traverses longitudinales"],["q_poutres_treillis","Poutres en treillis"],["q_ancrages_nombre","Ancrages - NOMBRE","number"],["q_niveaux_recouverts","Niveaux recouverts"],["q_planchers_compris","Planchers compris"],["q_au_niveau_des_angles","Au niveau des angles"],["q_madriers","Madriers"],["q_ouvertures","Ouvertures"],["q_dispositifs_securite","Dispositifs de sécurité"],["q_distance_mur","Distance mur ≤ 0,30 m"],["q_garde_corps_interieur","Garde-corps intérieur"],["q_montees_acces","Montées, accès"],["q_tour_escaliers","Tour d’escaliers"],["q_echelle_appui","Échelle d’appui"],["q_exigences_recueil","Exigences échafaudages de recueil"],["q_conduites_tension","Conduites sous tension"],["q_ecran_protection","Écran de protection"],["q_toit_protection_ctrl","Toit de protection"],["q_securite_circulation","Sécurité circulation"],["q_aux_acces","Aux accès"],["q_clotures","Clôtures"]
+];
+document.getElementById("checklist").innerHTML = checklistItems.map(([id,label,type]) => `
+  <div class="control-group">
+    <label for="${id}">${label}</label>
+    ${type==="number" ? `<input type="number" id="${id}" min="0" step="1">` : `<select id="${id}"><option value="">-- choisir --</option><option value="oui">Oui</option><option value="non">Non</option><option value="na">Non applicable</option></select>`}
+  </div>`).join("");
 
-    canvas.addEventListener("touchstart", start, { passive: false });
-    canvas.addEventListener("touchmove", draw, { passive: false });
-    canvas.addEventListener("touchend", stop, { passive: false });
+const params = new URLSearchParams(window.location.search);
+if(params.get("chantier_id")) document.getElementById("chantier_id").value = params.get("chantier_id");
+if(params.get("chantier")) document.getElementById("chantier").value = params.get("chantier");
 
-    clearBtn.addEventListener("click", function() {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.fillStyle = "white";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-    });
+const form=document.getElementById("pvForm"),canvas=document.getElementById("signatureCanvas"),ctx=canvas.getContext("2d"),clearBtn=document.getElementById("clearBtn");
+function resizeCanvas(){const r=canvas.getBoundingClientRect();canvas.width=r.width;canvas.height=200;ctx.fillStyle="white";ctx.fillRect(0,0,canvas.width,canvas.height);ctx.strokeStyle="black";ctx.lineWidth=2;ctx.lineCap="round"}
+resizeCanvas();window.addEventListener("resize",resizeCanvas);let drawing=false;
+function getPosition(e){const r=canvas.getBoundingClientRect();const t=e.touches?e.touches[0]:e;return{x:t.clientX-r.left,y:t.clientY-r.top}}
+function start(e){drawing=true;const p=getPosition(e);ctx.beginPath();ctx.moveTo(p.x,p.y);e.preventDefault()}
+function draw(e){if(!drawing)return;const p=getPosition(e);ctx.lineTo(p.x,p.y);ctx.stroke();e.preventDefault()}
+function stop(e){drawing=false;e.preventDefault()}
+["mousedown","touchstart"].forEach(ev=>canvas.addEventListener(ev,start,{passive:false}));
+["mousemove","touchmove"].forEach(ev=>canvas.addEventListener(ev,draw,{passive:false}));
+["mouseup","mouseleave","touchend"].forEach(ev=>canvas.addEventListener(ev,stop,{passive:false}));
+clearBtn.addEventListener("click",resizeCanvas);
 
-    const verificateurInput = document.getElementById("verificateur_nom");
-    const suggestionsBox = document.getElementById("verificateur_suggestions");
-    const verificateurInfo = document.getElementById("verificateur_info");
-    const infoStatut = document.getElementById("info_statut");
+const verificateurInput=document.getElementById("verificateur_nom"),suggestionsBox=document.getElementById("verificateur_suggestions"),verificateurInfo=document.getElementById("verificateur_info"),infoStatut=document.getElementById("info_statut");let selectedVerificateur=null;
+function selectVerificateur(v){selectedVerificateur=v;verificateurInput.value=v.nom_complet;["id","prenom","email","telephone","numero_diplome"].forEach(k=>{const el=document.getElementById("verificateur_"+(k==="id"?"id":k)); if(el) el.value=v[k]||""});document.getElementById("verificateur_lien_diplome").value=v.fichier_diplome||"";document.getElementById("verificateur_statut_color").value=v.statut_color||"";document.getElementById("verificateur_statut_label").value=v.statut_label||"";document.getElementById("verificateur_date_echeance").value=v.date_echeance_diplome||"";document.getElementById("info_email").textContent=v.email||"";document.getElementById("info_telephone").textContent=v.telephone||"";document.getElementById("info_numero_diplome").textContent=v.numero_diplome||"";document.getElementById("info_date_echeance").textContent=v.date_echeance_diplome||"";infoStatut.className="status-badge "+(v.statut_color||"grey");infoStatut.textContent=v.statut_label||"";verificateurInfo.style.display="block";suggestionsBox.style.display="none"}
+verificateurInput.addEventListener("input",async function(){const q=this.value.trim();selectedVerificateur=null;if(q.length<2){suggestionsBox.style.display="none";return}const res=await fetch(`/api/verificateurs?q=${encodeURIComponent(q)}`);const results=await res.json();suggestionsBox.innerHTML="";results.forEach(v=>{const item=document.createElement("div");item.className="suggestion-item";item.innerHTML=`<strong>${v.nom_complet}</strong><br><small>${v.email} — Diplôme ${v.numero_diplome} — ${v.statut_label}</small>`;item.onclick=()=>selectVerificateur(v);suggestionsBox.appendChild(item)});suggestionsBox.style.display=results.length?"block":"none"});
 
-    let selectedVerificateur = null;
-
-    function resetStatusBadge() {
-      infoStatut.className = "status-badge grey";
-      infoStatut.textContent = "";
-    }
-
-    function setStatusBadge(label, color) {
-      infoStatut.className = "status-badge " + (color || "grey");
-      infoStatut.textContent = label || "";
-    }
-
-    function clearVerificateurSelection() {
-      selectedVerificateur = null;
-      document.getElementById("verificateur_id").value = "";
-      document.getElementById("verificateur_prenom").value = "";
-      document.getElementById("verificateur_email").value = "";
-      document.getElementById("verificateur_telephone").value = "";
-      document.getElementById("verificateur_numero_diplome").value = "";
-      document.getElementById("verificateur_lien_diplome").value = "";
-      document.getElementById("verificateur_statut_color").value = "";
-      document.getElementById("verificateur_statut_label").value = "";
-      document.getElementById("verificateur_date_echeance").value = "";
-
-      document.getElementById("info_email").textContent = "";
-      document.getElementById("info_telephone").textContent = "";
-      document.getElementById("info_numero_diplome").textContent = "";
-      document.getElementById("info_date_echeance").textContent = "";
-      resetStatusBadge();
-
-      verificateurInfo.style.display = "none";
-    }
-
-    function selectVerificateur(v) {
-      selectedVerificateur = v;
-
-      document.getElementById("verificateur_nom").value = v.nom_complet;
-      document.getElementById("verificateur_id").value = v.id || "";
-      document.getElementById("verificateur_prenom").value = v.prenom || "";
-      document.getElementById("verificateur_email").value = v.email || "";
-      document.getElementById("verificateur_telephone").value = v.telephone || "";
-      document.getElementById("verificateur_numero_diplome").value = v.numero_diplome || "";
-      document.getElementById("verificateur_lien_diplome").value = v.fichier_diplome || "";
-      document.getElementById("verificateur_statut_color").value = v.statut_color || "";
-      document.getElementById("verificateur_statut_label").value = v.statut_label || "";
-      document.getElementById("verificateur_date_echeance").value = v.date_echeance_diplome || "";
-
-      document.getElementById("info_email").textContent = v.email || "";
-      document.getElementById("info_telephone").textContent = v.telephone || "";
-      document.getElementById("info_numero_diplome").textContent = v.numero_diplome || "";
-      document.getElementById("info_date_echeance").textContent = v.date_echeance_diplome || "";
-      setStatusBadge(v.statut_label, v.statut_color);
-
-      verificateurInfo.style.display = "block";
-      suggestionsBox.style.display = "none";
-      suggestionsBox.innerHTML = "";
-    }
-
-    verificateurInput.addEventListener("input", async function() {
-      const q = this.value.trim();
-
-      clearVerificateurSelection();
-
-      if (q.length < 2) {
-        suggestionsBox.style.display = "none";
-        suggestionsBox.innerHTML = "";
-        return;
-      }
-
-      try {
-        const response = await fetch(`/api/verificateurs?q=${encodeURIComponent(q)}`);
-        const results = await response.json();
-
-        suggestionsBox.innerHTML = "";
-
-        if (!results.length) {
-          suggestionsBox.style.display = "none";
-          return;
-        }
-
-        results.forEach(v => {
-          const item = document.createElement("div");
-          item.className = "suggestion-item";
-          item.innerHTML = `
-            <strong>${v.nom_complet}</strong><br>
-            <small>${v.email} — Diplôme ${v.numero_diplome} — ${v.statut_label}</small>
-          `;
-          item.addEventListener("click", () => selectVerificateur(v));
-          suggestionsBox.appendChild(item);
-        });
-
-        suggestionsBox.style.display = "block";
-      } catch (error) {
-        console.error("Erreur recherche vérificateur :", error);
-      }
-    });
-
-    document.addEventListener("click", function(e) {
-      if (!suggestionsBox.contains(e.target) && e.target !== verificateurInput) {
-        suggestionsBox.style.display = "none";
-      }
-    });
-
-    function buildPayload() {
-      return {
-        chantier: document.getElementById("chantier").value,
-        adresse: document.getElementById("adresse").value,
-        date_montage: document.getElementById("date_montage").value,
-
-        maitre_ouvrage: document.getElementById("maitre_ouvrage").value,
-        contact_mo: document.getElementById("contact_mo").value,
-        tel_mo: document.getElementById("tel_mo").value,
-
-        entreprise_montage: document.getElementById("entreprise_montage").value,
-        contact_montage: document.getElementById("contact_montage").value,
-        tel_montage: document.getElementById("tel_montage").value,
-
-        entreprise_utilisatrice: document.getElementById("entreprise_utilisatrice").value,
-        contact_utilisatrice: document.getElementById("contact_utilisatrice").value,
-        tel_utilisatrice: document.getElementById("tel_utilisatrice").value,
-
-        type_facade: document.getElementById("type_facade").checked,
-        type_recueil: document.getElementById("type_recueil").checked,
-        type_filet: document.getElementById("type_filet").checked,
-        type_bache: document.getElementById("type_bache").checked,
-        type_plateforme: document.getElementById("type_plateforme").checked,
-        type_escaliers: document.getElementById("type_escaliers").checked,
-        type_toit: document.getElementById("type_toit").checked,
-        type_toiture: document.getElementById("type_toiture").checked,
-        type_entreprise: document.getElementById("type_entreprise").value,
-
-        echafaudages_speciaux: document.getElementById("echafaudages_speciaux").value,
-        classe_charge: document.getElementById("classe_charge").value,
-        classe_largeur: document.getElementById("classe_largeur").value,
-        largeur_libre: document.getElementById("largeur_libre").value,
-
-        restriction_utilisation: document.getElementById("restriction_utilisation").value,
-        q_apparentement_intacts: document.getElementById("q_apparentement_intacts").value,
-        q_resistance_support: document.getElementById("q_resistance_support").value,
-        q_verins_reglage: document.getElementById("q_verins_reglage").value,
-        q_contreventements: document.getElementById("q_contreventements").value,
-        q_traverses_longitudinales: document.getElementById("q_traverses_longitudinales").value,
-        q_poutres_treillis: document.getElementById("q_poutres_treillis").value,
-        q_ancrages_nombre: document.getElementById("q_ancrages_nombre").value,
-        q_niveaux_recouverts: document.getElementById("q_niveaux_recouverts").value,
-        q_planchers_compris: document.getElementById("q_planchers_compris").value,
-        q_au_niveau_des_angles: document.getElementById("q_au_niveau_des_angles").value,
-        q_madriers: document.getElementById("q_madriers").value,
-        q_ouvertures: document.getElementById("q_ouvertures").value,
-        q_dispositifs_securite: document.getElementById("q_dispositifs_securite").value,
-        q_distance_mur: document.getElementById("q_distance_mur").value,
-        q_garde_corps_interieur: document.getElementById("q_garde_corps_interieur").value,
-        q_montees_acces: document.getElementById("q_montees_acces").value,
-        q_tour_escaliers: document.getElementById("q_tour_escaliers").value,
-        q_echelle_appui: document.getElementById("q_echelle_appui").value,
-        q_exigences_recueil: document.getElementById("q_exigences_recueil").value,
-        q_conduites_tension: document.getElementById("q_conduites_tension").value,
-        q_ecran_protection: document.getElementById("q_ecran_protection").value,
-        q_toit_protection_ctrl: document.getElementById("q_toit_protection_ctrl").value,
-        q_securite_circulation: document.getElementById("q_securite_circulation").value,
-        q_aux_acces: document.getElementById("q_aux_acces").value,
-        q_clotures: document.getElementById("q_clotures").value,
-
-        observations: document.getElementById("observations").value,
-
-        verificateur_nom: document.getElementById("verificateur_nom").value,
-        verificateur_prenom: document.getElementById("verificateur_prenom").value,
-        verificateur_email: document.getElementById("verificateur_email").value,
-        verificateur_telephone: document.getElementById("verificateur_telephone").value,
-        verificateur_numero_diplome: document.getElementById("verificateur_numero_diplome").value,
-        verificateur_lien_diplome: document.getElementById("verificateur_lien_diplome").value,
-        verificateur_statut_color: document.getElementById("verificateur_statut_color").value,
-        verificateur_statut_label: document.getElementById("verificateur_statut_label").value,
-        verificateur_date_echeance: document.getElementById("verificateur_date_echeance").value,
-        emails_destinataires: document.getElementById("emails_destinataires").value,
-
-        signature: canvas.toDataURL("image/png")
-
-
-
-        
-      };
-    }
-
-    previewJsonBtn.addEventListener("click", function() {
-      const data = buildPayload();
-      jsonPreview.style.display = "block";
-      jsonPreview.textContent = JSON.stringify(data, null, 2);
-    });
-
-    form.addEventListener("submit", async function(e) {
-      e.preventDefault();
-
-      if (!selectedVerificateur) {
-        alert("Veuillez sélectionner un vérificateur dans la liste proposée.");
-        return;
-      }
-
-      if (selectedVerificateur.statut_color === "red") {
-        alert("Le diplôme du vérificateur est expiré. Validation du PV impossible.");
-        return;
-      }
-
-      if (selectedVerificateur.statut_color === "orange") {
-        const ok = confirm("Attention : le diplôme du vérificateur expire dans moins de 6 mois. Voulez-vous continuer ?");
-        if (!ok) return;
-      }
-
-      const data = buildPayload();
-
-      console.log("DONNEES ENVOYEES", data);
-
-      try {
-        const response = await fetch("/api/pv", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify(data)
-        });
-
-        const result = await response.json();
-
-        if (!response.ok || result.success === false) {
-          alert("Erreur lors de la génération du PV : " + (result.error || "erreur inconnue"));
-          console.error(result);
-          return;
-        }
-
-        alert("PV généré avec succès !");
-        
-        if (result.pdf_file) {
-          const pdfUrl = `${window.location.origin}${result.pdf_file}`;
-          window.open(pdfUrl, "_blank");
-        }
-      } catch (error) {
-        alert("Erreur lors de l'envoi");
-        console.error(error);
-      }
-    });
-  </script>
-</body>
-</html>
+function val(id){return document.getElementById(id)?.value || ""}
+function checked(id){return document.getElementById(id)?.checked || false}
+function buildPayload(){
+  const data={
+    chantier_id:val("chantier_id"),chantier:val("chantier"),adresse:val("adresse"),date_montage:val("date_montage"),
+    maitre_ouvrage:val("maitre_ouvrage"),contact_mo:val("contact_mo"),tel_mo:val("tel_mo"),
+    entreprise_montage:val("entreprise_montage"),contact_montage:val("contact_montage"),tel_montage:val("tel_montage"),
+    entreprise_utilisatrice:val("entreprise_utilisatrice"),contact_utilisatrice:val("contact_utilisatrice"),tel_utilisatrice:val("tel_utilisatrice"),
+    type_facade:checked("type_facade"),type_recueil:checked("type_recueil"),type_filet:checked("type_filet"),type_bache:checked("type_bache"),type_plateforme:checked("type_plateforme"),type_escaliers:checked("type_escaliers"),type_toit:checked("type_toit"),type_toiture:checked("type_toiture"),type_entreprise:val("type_entreprise"),
+    echafaudages_speciaux:val("echafaudages_speciaux"),classe_charge:val("classe_charge"),classe_largeur:val("classe_largeur"),largeur_libre:val("largeur_libre"),restriction_utilisation:val("restriction_utilisation"),observations:val("observations"),
+    verificateur_nom:val("verificateur_nom"),verificateur_prenom:val("verificateur_prenom"),verificateur_email:val("verificateur_email"),verificateur_telephone:val("verificateur_telephone"),verificateur_numero_diplome:val("verificateur_numero_diplome"),verificateur_lien_diplome:val("verificateur_lien_diplome"),verificateur_statut_color:val("verificateur_statut_color"),verificateur_statut_label:val("verificateur_statut_label"),verificateur_date_echeance:val("verificateur_date_echeance"),
+    emails_destinataires:val("emails_destinataires"),signature:canvas.toDataURL("image/png")
+  };
+  checklistItems.forEach(([id])=>data[id]=val(id));
+  return data;
+}
+document.getElementById("previewJsonBtn").onclick=()=>{jsonPreview.style.display="block";jsonPreview.textContent=JSON.stringify(buildPayload(),null,2)}
+form.addEventListener("submit",async e=>{e.preventDefault();if(!selectedVerificateur){alert("Veuillez sélectionner un vérificateur.");return}if(selectedVerificateur.statut_color==="red"){alert("Diplôme expiré. Validation impossible.");return}if(selectedVerificateur.statut_color==="orange"&&!confirm("Diplôme à renouveler dans moins de 6 mois. Continuer ?"))return;const response=await fetch("/api/pv",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(buildPayload())});const result=await response.json();if(!response.ok||result.success===false){alert("Erreur : "+(result.error||"inconnue"));return}alert("PV généré avec succès !");if(result.pdf_file) window.open(`${window.location.origin}${result.pdf_file}`,"_blank")});
+</script>
+{% endblock %}

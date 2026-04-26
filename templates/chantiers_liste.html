@@ -1,37 +1,50 @@
 {% extends "base.html" %}
-{% block title %}Chantiers - Echaff{% endblock %}
+{% block title %}Chantiers - ECHAFF{% endblock %}
 {% block content %}
-  <div class="card">
-    <div class="actions" style="justify-content:space-between">
-      <div><h1>Liste des chantiers</h1><p class="muted">Créez, modifiez, archivez ou supprimez les chantiers.</p></div>
-      <a class="btn" href="/chantiers/nouveau">Créer un chantier</a>
-    </div>
+<div class="topbar">
+  <div>
+    <h1>Chantiers</h1>
+    <p>Création, suivi, statuts, PV de réception et QR codes.</p>
   </div>
-  <div class="card">
-    {% if chantiers %}
-      <table>
-        <thead><tr><th>Chantier</th><th>Client</th><th>Statut</th><th>PV</th><th>Actions</th></tr></thead>
-        <tbody>
-        {% for chantier in chantiers %}
-          <tr>
-            <td><strong>{{ chantier.nom }}</strong><br><span class="muted">{{ chantier.reference_interne }} — {{ chantier.adresse_complete }}</span></td>
-            <td>{{ chantier.client_maitre_ouvrage }}</td>
-            <td><span class="badge {{ chantier.statut }}">{{ chantier.statut }}</span></td>
-            <td>{{ chantier.nb_pvs or 0 }} PV</td>
-            <td>
-              <div class="actions">
-                <a class="btn secondary" href="/chantiers/{{ chantier.id }}">Voir</a>
-                <a class="btn secondary" href="/chantiers/{{ chantier.id }}/modifier">Modifier</a>
-                {% if chantier.statut != 'archive' %}<form method="post" action="/chantiers/{{ chantier.id }}/archiver" style="display:inline"><button class="btn warning" type="submit">Archiver</button></form>{% endif %}
-                <form method="post" action="/chantiers/{{ chantier.id }}/supprimer" style="display:inline" onsubmit="return confirm('Supprimer ce chantier ?')"><button class="btn danger" type="submit">Supprimer</button></form>
-              </div>
-            </td>
-          </tr>
-        {% endfor %}
-        </tbody>
-      </table>
-    {% else %}
-      <div class="empty">Aucun chantier créé.</div>
-    {% endif %}
+  <div class="actions">
+    <a class="btn" href="/chantiers/nouveau">+ Nouveau chantier</a>
   </div>
+</div>
+
+<div class="card">
+  <table>
+    <thead>
+      <tr><th>Chantier</th><th>Statut</th><th>PV</th><th>Notifications</th><th>Actions</th></tr>
+    </thead>
+    <tbody>
+      {% for chantier in chantiers %}
+      <tr>
+        <td>
+          <strong>{{ chantier.nom }}</strong><br>
+          <span class="muted">{{ chantier.adresse_complete }}</span>
+        </td>
+        <td><span class="badge {{ chantier.statut }}">{{ chantier.statut }}</span></td>
+        <td>{{ chantier.nb_pvs }} PV</td>
+        <td>
+          {% for n in chantier.notifications %}
+            <div class="notif {{ n.type }}">{{ n.label }}</div>
+          {% else %}
+            <span class="muted">RAS</span>
+          {% endfor %}
+        </td>
+        <td>
+          <div class="actions">
+            <a class="btn secondary" href="/chantiers/{{ chantier.id }}">Voir</a>
+            <a class="btn secondary" href="/chantiers/{{ chantier.id }}/modifier">Modifier</a>
+            <form method="post" action="/chantiers/{{ chantier.id }}/archiver"><button class="btn warning" type="submit">Archiver</button></form>
+            <form method="post" action="/chantiers/{{ chantier.id }}/supprimer" onsubmit="return confirm('Supprimer ce chantier ?')"><button class="btn danger" type="submit">Supprimer</button></form>
+          </div>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5" class="muted">Aucun chantier créé.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
 {% endblock %}

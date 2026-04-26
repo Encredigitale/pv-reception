@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Accès chantier - ECHAFF{% endblock %}
+{% block content %}
+<div class="topbar">
+  <div>
+    <h1>Accès chantier</h1>
+    <p>{{ chantier.nom }} — {{ chantier.adresse_complete }}</p>
+  </div>
+</div>
+
+<div class="grid">
+  <a class="quick-card span-4" href="#inspection"><strong>Inspection</strong><span>Consultation du dossier chantier et des PV.</span></a>
+  <a class="quick-card span-4" href="#pointage"><strong>Pointage</strong><span>Saisie arrivée / départ des équipes.</span></a>
+  <a class="quick-card span-4" href="#pv"><strong>PV réception</strong><span>Consultation et signature des PV.</span></a>
+
+  <div class="card span-12" id="inspection">
+    <h2>Inspection</h2>
+    {% for n in notifications %}<div class="notif {{ n.type }}">{{ n.label }}</div>{% else %}<p class="muted">Aucune alerte.</p>{% endfor %}
+  </div>
+
+  <div class="card span-12" id="pv">
+    <h2>PV de réception</h2>
+    <table>
+      <thead><tr><th>N° PV</th><th>Date</th><th>Documents</th></tr></thead>
+      <tbody>
+        {% for pv in pvs_reception %}
+        <tr><td>{{ pv.numero_pv }}</td><td>{{ pv.created_at }}</td><td><a class="btn secondary" href="{{ pv.pdf_file }}" target="_blank">PDF</a> <a class="btn secondary" href="{{ pv.client_signature_url }}">Signer</a></td></tr>
+        {% else %}<tr><td colspan="3" class="muted">Aucun PV.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card span-12" id="pointage">
+    <h2>Pointage</h2>
+    <p class="muted">Module prévu pour la prochaine étape : arrivée, départ, salarié, société, durée.</p>
+  </div>
+</div>
+{% endblock %}

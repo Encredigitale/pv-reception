@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Profils société - Echaff{% endblock %}
+{% block content %}
+  <div class="card">
+    <div class="actions" style="justify-content:space-between">
+      <div><h1>Profils société</h1><p class="muted">Utilisateurs, rôles et certifications.</p></div>
+      <a class="btn" href="/profils/nouveau">Créer un profil</a>
+    </div>
+  </div>
+  <div class="card">
+    {% if profils %}
+      <table>
+        <thead><tr><th>Nom</th><th>Email</th><th>Rôle</th><th>Certification</th><th>Statut</th></tr></thead>
+        <tbody>
+        {% for profil in profils %}
+          <tr>
+            <td><strong>{{ profil.prenom }} {{ profil.nom }}</strong><br><span class="muted">{{ profil.societe }}</span></td>
+            <td>{{ profil.email }}<br><span class="muted">{{ profil.telephone }}</span></td>
+            <td><span class="badge">{{ profil.role }}</span></td>
+            <td>
+              {% if profil.certification and profil.certification.certifie %}
+                <span class="badge actif">Certifié</span><br><span class="muted">{{ profil.certification.reference }}</span>
+              {% else %}
+                <span class="badge">Non certifié</span>
+              {% endif %}
+            </td>
+            <td>{% if profil.actif %}<span class="badge actif">Actif</span>{% else %}<span class="badge archive">Inactif</span>{% endif %}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <div class="empty">Aucun profil créé.</div>
+    {% endif %}
+  </div>
+{% endblock %}

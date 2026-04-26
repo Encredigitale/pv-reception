@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}Accueil - Echaff{% endblock %}
+{% block content %}
+  <div class="card">
+    <h1>Tableau de bord</h1>
+    <p class="muted">Gérez les informations société, les profils et les chantiers depuis une interface simple.</p>
+  </div>
+
+  <section class="grid">
+    {% for item in menu %}
+      <a class="card card-link" href="{{ item.url }}">
+        <h2>{{ item.label }}</h2>
+        <p class="muted">{{ item.description }}</p>
+        <span class="btn secondary">Ouvrir</span>
+      </a>
+    {% endfor %}
+  </section>
+
+  <section class="grid">
+    <div class="card"><h2>{{ nb_chantiers_actifs }}</h2><p class="muted">Chantiers actifs</p></div>
+    <div class="card"><h2>{{ nb_chantiers_archives }}</h2><p class="muted">Chantiers archivés</p></div>
+    <div class="card"><h2>{{ nb_profils }}</h2><p class="muted">Profils société</p></div>
+  </section>
+
+  <section class="card">
+    <div class="actions" style="justify-content:space-between;margin-bottom:12px">
+      <div>
+        <h2>Derniers chantiers</h2>
+        <p class="muted">Accès rapide aux chantiers créés.</p>
+      </div>
+      <a class="btn" href="/chantiers/nouveau">Créer un chantier</a>
+    </div>
+    {% if chantiers %}
+      <table>
+        <thead><tr><th>Chantier</th><th>Référence</th><th>Statut</th><th>Actions</th></tr></thead>
+        <tbody>
+        {% for chantier in chantiers %}
+          <tr>
+            <td><strong>{{ chantier.nom }}</strong><br><span class="muted">{{ chantier.adresse_complete }}</span></td>
+            <td>{{ chantier.reference_interne }}</td>
+            <td><span class="badge {{ chantier.statut }}">{{ chantier.statut }}</span></td>
+            <td><a class="btn secondary" href="/chantiers/{{ chantier.id }}">Voir</a></td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <div class="empty">Aucun chantier actif pour le moment.</div>
+    {% endif %}
+  </section>
+{% endblock %}

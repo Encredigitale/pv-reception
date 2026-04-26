@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}{% if mode == 'edition' %}Modifier chantier{% else %}Nouveau chantier{% endif %} - Echaff{% endblock %}
+{% block content %}
+  <div class="card">
+    <h1>{% if mode == 'edition' %}Modifier le chantier{% else %}Créer un chantier{% endif %}</h1>
+    <p class="muted">Renseignez les informations principales du chantier.</p>
+  </div>
+  {% set is_edit = mode == 'edition' %}
+  <div class="card">
+    <form method="post" action="{% if is_edit %}/chantiers/{{ chantier.id }}/modifier{% else %}/chantiers/nouveau{% endif %}">
+      <div class="form-grid">
+        <div class="field"><label>Nom du chantier</label><input name="nom" value="{{ chantier.nom if chantier is defined else '' }}" required></div>
+        <div class="field"><label>Référence interne</label><input name="reference_interne" value="{{ chantier.reference_interne if chantier is defined else '' }}"></div>
+        <div class="field full"><label>Adresse complète</label><input name="adresse_complete" value="{{ chantier.adresse_complete if chantier is defined else '' }}"></div>
+        <div class="field"><label>Bâtiment / zone / étage / secteur</label><input name="batiment_zone_etage_secteur" value="{{ chantier.batiment_zone_etage_secteur if chantier is defined else '' }}"></div>
+        <div class="field"><label>Client / maître d’ouvrage</label><input name="client_maitre_ouvrage" value="{{ chantier.client_maitre_ouvrage if chantier is defined else '' }}"></div>
+        <div class="field"><label>Date de début</label><input type="date" name="date_debut" value="{{ chantier.date_debut if chantier is defined else '' }}"></div>
+        <div class="field"><label>Date de fin estimée</label><input type="date" name="date_fin_estimee" value="{{ chantier.date_fin_estimee if chantier is defined else '' }}"></div>
+        <div class="field"><label>Date de fin réelle</label><input type="date" name="date_fin_reelle" value="{{ chantier.date_fin_reelle if chantier is defined else '' }}"></div>
+        <div class="field"><label>Statut</label><select name="statut">{% for statut in statuts %}<option value="{{ statut }}" {% if chantier is defined and chantier.statut == statut %}selected{% endif %}>{{ statut }}</option>{% endfor %}</select></div>
+        <div class="field"><label>Société échafaudage responsable</label><input name="societe_echafaudage_responsable" value="{{ chantier.societe_echafaudage_responsable if chantier is defined else societe.nom if societe is defined else '' }}"></div>
+        <div class="field full"><label>Sociétés utilisatrices autorisées</label><textarea name="societes_utilisatrices_autorisees" placeholder="Une ou plusieurs sociétés, séparées par des virgules">{% if chantier is defined and chantier.societes_utilisatrices_autorisees %}{{ chantier.societes_utilisatrices_autorisees | join(', ') }}{% endif %}</textarea></div>
+      </div>
+      <div class="actions"><button class="btn" type="submit">{% if is_edit %}Enregistrer les modifications{% else %}Créer le chantier{% endif %}</button><a class="btn secondary" href="/chantiers">Annuler</a></div>
+    </form>
+  </div>
+{% endblock %}

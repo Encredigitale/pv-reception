@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Informations société - Echaff{% endblock %}
+{% block content %}
+  <div class="card">
+    <h1>Informations société</h1>
+    <p class="muted">Créez ou mettez à jour les informations de la société d’échafaudage.</p>
+  </div>
+  <div class="card">
+    <form method="post" action="/societe">
+      <div class="form-grid">
+        <div class="field"><label>Nom de la société</label><input name="nom" value="{{ societe.nom or '' }}" required></div>
+        <div class="field"><label>SIRET</label><input name="siret" value="{{ societe.siret or '' }}"></div>
+        <div class="field full"><label>Adresse</label><input name="adresse" value="{{ societe.adresse or '' }}"></div>
+        <div class="field"><label>Code postal</label><input name="code_postal" value="{{ societe.code_postal or '' }}"></div>
+        <div class="field"><label>Ville</label><input name="ville" value="{{ societe.ville or '' }}"></div>
+        <div class="field"><label>Pays</label><input name="pays" value="{{ societe.pays or 'France' }}"></div>
+        <div class="field"><label>Téléphone</label><input name="telephone" value="{{ societe.telephone or '' }}"></div>
+        <div class="field"><label>Email</label><input type="email" name="email" value="{{ societe.email or '' }}"></div>
+        <div class="field"><label>Nom du représentant</label><input name="representant_nom" value="{{ societe.representant_nom or '' }}"></div>
+        <div class="field"><label>Prénom du représentant</label><input name="representant_prenom" value="{{ societe.representant_prenom or '' }}"></div>
+      </div>
+      <div class="actions"><button class="btn" type="submit">Enregistrer</button><a class="btn secondary" href="/dashboard">Retour</a></div>
+    </form>
+  </div>
+{% endblock %}

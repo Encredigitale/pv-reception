@@ -108,6 +108,24 @@ CARTES_DIR = UPLOADS_DIR / "cartes_identite"
 DIPLOMES_DIR = UPLOADS_DIR / "diplomes"
 QR_CODES_DIR = UPLOADS_DIR / "qr_codes"
 
+# =========================================================
+# INITIALISATION STOCKAGE FICHIER PLAT (PHASE 1)
+# =========================================================
+
+def ensure_secure_storage():
+    try:
+        # Création dossier racine
+        if not SECURE_DATA_DIR.exists():
+            SECURE_DATA_DIR.mkdir(parents=True, exist_ok=True)
+            print(f"[INIT] Création dossier secure_data : {SECURE_DATA_DIR}")
+
+        # Création sous-dossier métier
+        if not ECHAFF_DATA_DIR.exists():
+            ECHAFF_DATA_DIR.mkdir(parents=True, exist_ok=True)
+            print(f"[INIT] Création dossier echaff_phase1 : {ECHAFF_DATA_DIR}")
+
+    except Exception as e:
+        print("[ERREUR INIT STORAGE]", e)
 
 # =========================================================
 # INITIALISATION DOSSIERS
@@ -149,6 +167,8 @@ app.mount("/data", StaticFiles(directory=str(DATA_DIR)), name="data")
 def startup_event():
     init_db()
 
+    # >>> AJOUT PHASE 1
+    ensure_secure_storage()
 
 @app.get("/test")
 def test():

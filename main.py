@@ -865,6 +865,438 @@ def regenerate_pv_files(dossier_data: dict) -> dict:
 
 
 # =========================================================
+# EXTENSION ECHAFF - PHASE 1
+# Ajout sans modification de la structure existante
+# Objectif : informations société, profils société, chantiers société
+# =========================================================
+
+ECHAFF_DATA_DIR = DATA_DIR / "echaff_phase1"
+ECHAFF_DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+ECHAFF_SOCIETE_FILE = ECHAFF_DATA_DIR / "societe.json"
+ECHAFF_PROFILS_FILE = ECHAFF_DATA_DIR / "profils.json"
+ECHAFF_CHANTIERS_FILE = ECHAFF_DATA_DIR / "chantiers.json"
+
+
+ROLES_ECHAFF = [
+    "admin_societe_echafaudage",
+    "responsable_certifie",
+    "collaborateur_echafaudage",
+    "societe_utilisatrice",
+    "inspecteur_lecture_seule",
+    "visiteur_qr_code",
+]
+
+
+STATUTS_CHANTIER = [
+    "brouillon",
+    "en_cours",
+    "en_attente_signatures",
+    "actif",
+    "cloture",
+    "archive",
+]
+
+
+def load_list_json(path: Path) -> list:
+    if not path.exists():
+        return []
+    with path.open("r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def save_list_json(path: Path, data: list) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+def load_dict_json(path: Path) -> dict:
+    if not path.exists():
+        return {}
+    with path.open("r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def save_dict_json(path: Path, data: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+def append_historique_chantier(chantier: dict, action: str, auteur: str = "system") -> dict:
+    historique = chantier.get("historique", [])
+    historique.append({
+        "date": datetime.now().isoformat(),
+        "action": action,
+        "auteur": auteur,
+    })
+    chantier["historique"] = historique
+    return chantier
+
+
+def get_chantier_by_id(chantier_id: str) -> dict | None:
+    chantiers = load_list_json(ECHAFF_CHANTIERS_FILE)
+    for chantier in chantiers:
+        if chantier.get("id") == chantier_id:
+            return chantier
+    return None
+
+
+@app.get("/dashboard", response_class=HTMLResponse)
+def dashboard_echaff(request: Request):
+    """
+    Menu phase 1 :
+    - gestion des informations société
+    - gestion des profils de la société
+    - gestion des chantiers de la société
+    """
+    societe = load_dict_json(ECHAFF_SOCIETE_FILE)
+    profils = load_list_json(ECHAFF_PROFILS_FILE)
+    chantiers = load_list_json(ECHAFF_CHANTIERS_FILE)
+
+    return templates.TemplateResponse(
+        request=request,
+        name="dashboard.html",
+        context={
+            "request": request,
+            "societe": societe,
+            "nb_profils": len(profils),
+            "nb_chantiers": len(chantiers),
+            "roles": ROLES_ECHAFF,
+            "statuts_chantier": STATUTS_CHANTIER,
+        }
+    )
+
+
+# ---------------------------------------------------------
+# EXTENSION ECHAFF - INFORMATIONS SOCIETE
+# ---------------------------------------------------------
+
+@app.get("/societe", response_class=HTMLResponse)
+def societe_form(request: Request):
+    societe = load_dict_json(ECHAFF_SOCIETE_FILE)
+    return templates.TemplateResponse(
+        request=request,
+        name="societe_form.html",
+        context={"request": request, "societe": societe}
+    )
+
+
+@app.post("/societe", response_class=HTMLResponse)
+async def societe_save(
+    request: Request,
+    nom: str = Form(...),
+    siret: str = Form(""),
+    adresse: str = Form(""),
+    code_postal: str = Form(""),
+    ville: str = Form(""),
+    pays: str = Form("France"),
+    telephone: str = Form(""),
+    email: str = Form(""),
+    representant_nom: str = Form(""),
+    representant_prenom: str = Form(""),
+):
+    societe = {
+        "id": "societe_principale_phase1",
+        "nom": nom.strip(),
+        "siret": siret.strip(),
+        "adresse": adresse.strip(),
+        "code_postal": code_postal.strip(),
+        "ville": ville.strip(),
+        "pays": pays.strip(),
+        "telephone": telephone.strip(),
+        "email": email.strip(),
+        "representant_nom": representant_nom.strip(),
+        "representant_prenom": representant_prenom.strip(),
+        "updated_at": datetime.now().isoformat(),
+    }
+
+    save_dict_json(ECHAFF_SOCIETE_FILE, societe)
+    return RedirectResponse("/societe", status_code=303)
+
+
+@app.get("/api/societe")
+def api_get_societe():
+    return load_dict_json(ECHAFF_SOCIETE_FILE)
+
+
+@app.post("/api/societe")
+async def api_save_societe(request: Request):
+    payload = await request.json()
+    payload["id"] = payload.get("id") or "societe_principale_phase1"
+    payload["updated_at"] = datetime.now().isoformat()
+    save_dict_json(ECHAFF_SOCIETE_FILE, payload)
+    return {"success": True, "societe": payload}
+
+
+# ---------------------------------------------------------
+# EXTENSION ECHAFF - PROFILS SOCIETE
+# ---------------------------------------------------------
+
+@app.get("/profils", response_class=HTMLResponse)
+def profils_liste(request: Request):
+    profils = load_list_json(ECHAFF_PROFILS_FILE)
+    return templates.TemplateResponse(
+        request=request,
+        name="profils_liste.html",
+        context={"request": request, "profils": profils, "roles": ROLES_ECHAFF}
+    )
+
+
+@app.get("/profils/nouveau", response_class=HTMLResponse)
+def profil_form(request: Request):
+    return templates.TemplateResponse(
+        request=request,
+        name="profil_form.html",
+        context={"request": request, "roles": ROLES_ECHAFF}
+    )
+
+
+@app.post("/profils/nouveau", response_class=HTMLResponse)
+async def profil_create(
+    request: Request,
+    nom: str = Form(...),
+    prenom: str = Form(...),
+    email: str = Form(...),
+    telephone: str = Form(""),
+    societe: str = Form(""),
+    role: str = Form(...),
+    actif: str = Form("oui"),
+    certification_intitule: str = Form(""),
+    certification_reference: str = Form(""),
+    certification_date_obtention: str = Form(""),
+    certification_date_validite: str = Form(""),
+    certifie: str = Form("non"),
+    certification_document: UploadFile | None = File(None),
+):
+    if role not in ROLES_ECHAFF:
+        raise HTTPException(status_code=400, detail="Rôle invalide")
+
+    profils = load_list_json(ECHAFF_PROFILS_FILE)
+
+    certification_document_path = ""
+    if certification_document and certification_document.filename:
+        certification_document_path = save_upload_file(certification_document, DIPLOMES_DIR)
+
+    profil = {
+        "id": uuid4().hex,
+        "nom": nom.strip(),
+        "prenom": prenom.strip(),
+        "email": email.strip(),
+        "telephone": telephone.strip(),
+        "societe": societe.strip(),
+        "role": role,
+        "actif": actif == "oui",
+        "signature_electronique": "",
+        "certification": {
+            "intitule": certification_intitule.strip(),
+            "reference": certification_reference.strip(),
+            "date_obtention": certification_date_obtention.strip(),
+            "date_validite": certification_date_validite.strip(),
+            "document": certification_document_path,
+            "certifie": certifie == "oui",
+        },
+        "created_at": datetime.now().isoformat(),
+        "updated_at": datetime.now().isoformat(),
+    }
+
+    profils.append(profil)
+    save_list_json(ECHAFF_PROFILS_FILE, profils)
+    return RedirectResponse("/profils", status_code=303)
+
+
+@app.get("/api/profils")
+def api_get_profils():
+    return {"success": True, "profils": load_list_json(ECHAFF_PROFILS_FILE)}
+
+
+@app.post("/api/profils")
+async def api_create_profil(request: Request):
+    payload = await request.json()
+    role = payload.get("role")
+
+    if role not in ROLES_ECHAFF:
+        raise HTTPException(status_code=400, detail="Rôle invalide")
+
+    profils = load_list_json(ECHAFF_PROFILS_FILE)
+    profil = {
+        "id": uuid4().hex,
+        "nom": payload.get("nom", "").strip(),
+        "prenom": payload.get("prenom", "").strip(),
+        "email": payload.get("email", "").strip(),
+        "telephone": payload.get("telephone", "").strip(),
+        "societe": payload.get("societe", "").strip(),
+        "role": role,
+        "actif": bool(payload.get("actif", True)),
+        "signature_electronique": payload.get("signature_electronique", ""),
+        "certification": {
+            "intitule": payload.get("certification_intitule", "").strip(),
+            "reference": payload.get("certification_reference", "").strip(),
+            "date_obtention": payload.get("certification_date_obtention", "").strip(),
+            "date_validite": payload.get("certification_date_validite", "").strip(),
+            "document": payload.get("certification_document", "").strip(),
+            "certifie": bool(payload.get("certifie", False)),
+        },
+        "created_at": datetime.now().isoformat(),
+        "updated_at": datetime.now().isoformat(),
+    }
+    profils.append(profil)
+    save_list_json(ECHAFF_PROFILS_FILE, profils)
+    return {"success": True, "profil": profil}
+
+
+# ---------------------------------------------------------
+# EXTENSION ECHAFF - CHANTIERS SOCIETE
+# ---------------------------------------------------------
+
+@app.get("/chantiers", response_class=HTMLResponse)
+def chantiers_liste(request: Request):
+    chantiers = load_list_json(ECHAFF_CHANTIERS_FILE)
+    return templates.TemplateResponse(
+        request=request,
+        name="chantiers_liste.html",
+        context={"request": request, "chantiers": chantiers, "statuts": STATUTS_CHANTIER}
+    )
+
+
+@app.get("/chantiers/nouveau", response_class=HTMLResponse)
+def chantier_form(request: Request):
+    societe = load_dict_json(ECHAFF_SOCIETE_FILE)
+    return templates.TemplateResponse(
+        request=request,
+        name="chantier_form.html",
+        context={"request": request, "statuts": STATUTS_CHANTIER, "societe": societe}
+    )
+
+
+@app.post("/chantiers/nouveau", response_class=HTMLResponse)
+async def chantier_create(
+    request: Request,
+    nom: str = Form(...),
+    reference_interne: str = Form(""),
+    adresse_complete: str = Form(""),
+    batiment_zone_etage_secteur: str = Form(""),
+    client_maitre_ouvrage: str = Form(""),
+    date_debut: str = Form(""),
+    date_fin_estimee: str = Form(""),
+    date_fin_reelle: str = Form(""),
+    statut: str = Form("brouillon"),
+    societe_echafaudage_responsable: str = Form(""),
+    societes_utilisatrices_autorisees: str = Form(""),
+):
+    if statut not in STATUTS_CHANTIER:
+        raise HTTPException(status_code=400, detail="Statut chantier invalide")
+
+    chantiers = load_list_json(ECHAFF_CHANTIERS_FILE)
+
+    chantier = {
+        "id": uuid4().hex,
+        "nom": nom.strip(),
+        "reference_interne": reference_interne.strip(),
+        "adresse_complete": adresse_complete.strip(),
+        "batiment_zone_etage_secteur": batiment_zone_etage_secteur.strip(),
+        "client_maitre_ouvrage": client_maitre_ouvrage.strip(),
+        "date_debut": date_debut.strip(),
+        "date_fin_estimee": date_fin_estimee.strip(),
+        "date_fin_reelle": date_fin_reelle.strip(),
+        "statut": statut,
+        "societe_echafaudage_responsable": societe_echafaudage_responsable.strip(),
+        "societes_utilisatrices_autorisees": [
+            s.strip() for s in societes_utilisatrices_autorisees.split(",") if s.strip()
+        ],
+        "documents_associes": [],
+        "historique": [],
+        "created_at": datetime.now().isoformat(),
+        "updated_at": datetime.now().isoformat(),
+    }
+    chantier = append_historique_chantier(chantier, "Création du chantier")
+
+    chantiers.append(chantier)
+    save_list_json(ECHAFF_CHANTIERS_FILE, chantiers)
+    return RedirectResponse("/chantiers", status_code=303)
+
+
+@app.get("/chantiers/{chantier_id}", response_class=HTMLResponse)
+def chantier_detail(request: Request, chantier_id: str):
+    chantier = get_chantier_by_id(chantier_id)
+    if not chantier:
+        raise HTTPException(status_code=404, detail="Chantier introuvable")
+
+    return templates.TemplateResponse(
+        request=request,
+        name="chantier_detail.html",
+        context={"request": request, "chantier": chantier, "statuts": STATUTS_CHANTIER}
+    )
+
+
+@app.post("/chantiers/{chantier_id}/statut")
+async def chantier_update_statut(chantier_id: str, request: Request):
+    payload = await request.json()
+    nouveau_statut = payload.get("statut", "")
+
+    if nouveau_statut not in STATUTS_CHANTIER:
+        raise HTTPException(status_code=400, detail="Statut chantier invalide")
+
+    chantiers = load_list_json(ECHAFF_CHANTIERS_FILE)
+    updated = None
+
+    for chantier in chantiers:
+        if chantier.get("id") == chantier_id:
+            chantier["statut"] = nouveau_statut
+            chantier["updated_at"] = datetime.now().isoformat()
+            append_historique_chantier(chantier, f"Changement de statut : {nouveau_statut}")
+            updated = chantier
+            break
+
+    if not updated:
+        raise HTTPException(status_code=404, detail="Chantier introuvable")
+
+    save_list_json(ECHAFF_CHANTIERS_FILE, chantiers)
+    return {"success": True, "chantier": updated}
+
+
+@app.get("/api/chantiers")
+def api_get_chantiers():
+    return {"success": True, "chantiers": load_list_json(ECHAFF_CHANTIERS_FILE)}
+
+
+@app.post("/api/chantiers")
+async def api_create_chantier(request: Request):
+    payload = await request.json()
+    statut = payload.get("statut", "brouillon")
+
+    if statut not in STATUTS_CHANTIER:
+        raise HTTPException(status_code=400, detail="Statut chantier invalide")
+
+    chantiers = load_list_json(ECHAFF_CHANTIERS_FILE)
+
+    chantier = {
+        "id": uuid4().hex,
+        "nom": payload.get("nom", "").strip(),
+        "reference_interne": payload.get("reference_interne", "").strip(),
+        "adresse_complete": payload.get("adresse_complete", "").strip(),
+        "batiment_zone_etage_secteur": payload.get("batiment_zone_etage_secteur", "").strip(),
+        "client_maitre_ouvrage": payload.get("client_maitre_ouvrage", "").strip(),
+        "date_debut": payload.get("date_debut", "").strip(),
+        "date_fin_estimee": payload.get("date_fin_estimee", "").strip(),
+        "date_fin_reelle": payload.get("date_fin_reelle", "").strip(),
+        "statut": statut,
+        "societe_echafaudage_responsable": payload.get("societe_echafaudage_responsable", "").strip(),
+        "societes_utilisatrices_autorisees": payload.get("societes_utilisatrices_autorisees", []),
+        "documents_associes": payload.get("documents_associes", []),
+        "historique": [],
+        "created_at": datetime.now().isoformat(),
+        "updated_at": datetime.now().isoformat(),
+    }
+    chantier = append_historique_chantier(chantier, "Création du chantier")
+
+    chantiers.append(chantier)
+    save_list_json(ECHAFF_CHANTIERS_FILE, chantiers)
+    return {"success": True, "chantier": chantier}
+
+
+# =========================================================
 # ROUTES - HOME / PV VERIFICATEUR
 # =========================================================
 

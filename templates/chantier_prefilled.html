@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>PV Chantier</title>
+</head>
+<body>
+
+<h1>PV Réception (Chantier)</h1>
+
+<h2>Informations chantier</h2>
+
+<p><strong>Chantier :</strong> {{ data.chantier }}</p>
+<p><strong>Adresse :</strong> {{ data.adresse }}</p>
+
+<h2>Entreprise utilisatrice</h2>
+
+<p>{{ data.entreprise_utilisatrice }}</p>
+<p>{{ data.contact_utilisatrice }}</p>
+<p>{{ data.tel_utilisatrice }}</p>
+
+<h2>Vérificateur</h2>
+
+<p>{{ data.verificateur_prenom }} {{ data.verificateur_nom }}</p>
+<p>Diplôme : {{ data.verificateur_numero_diplome }}</p>
+
+{% if data.verificateur_lien_diplome %}
+<p>
+    <a href="/{{ data.verificateur_lien_diplome }}" target="_blank">
+        Voir le diplôme
+    </a>
+</p>
+{% endif %}
+
+<hr>
+
+<h2>Checklist chantier (à compléter)</h2>
+
+<p>👉 Ici on ajoutera la checklist ensuite</p>
+
+<hr>
+
+<h2>Signature vérificateur</h2>
+
+<form id="signatureForm">
+
+    <!-- ✍️ Signature à la souris -->
+    <canvas id="signature-pad" width="400" height="200" style="border:1px solid #000;"></canvas>
+    <br>
+    <button type="button" onclick="clearSignature()">Effacer</button>
+
+    <br><br>
+
+    <!-- 📤 Upload signature -->
+    <label><b>Ou importer un tampon / signature :</b></label><br>
+    <input type="file" id="signatureFile" accept="image/*">
+
+    <br><br>
+
+    <button type="button" onclick="envoyerSignature()">Valider signature</button>
+
+
+</form>
+
+<script>
+let canvas = document.getElementById('signature-pad');
+let ctx = canvas.getContext('2d');
+let drawing = false;
+
+canvas.addEventListener('mousedown', () => drawing = true);
+canvas.addEventListener('mouseup', () => drawing = false);
+canvas.addEventListener('mousemove', draw);
+
+function draw(e) {
+    if (!drawing) return;
+    ctx.lineWidth = 2;
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = '#000';
+
+    ctx.lineTo(e.offsetX, e.offsetY);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(e.offsetX, e.offsetY);
+}
+
+function clearSignature() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+}
+
+function envoyerSignature() {
+
+    const fileInput = document.getElementById("signatureFile");
+    const file = fileInput.files[0];
+
+    // 📤 CAS 1 : image upload
+    if (file) {
+        const reader = new FileReader();
+
+        reader.onload = function (e) {
+            fetch(`/api/signature/{{ data.dossier_id }}`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    signature: e.target.result
+                })
+            })
+            .then(res => res.json())
+            .then(data => {
+                alert("Signature importée !");
+                location.reload();
+            });
+        };
+
+        reader.readAsDataURL(file);
+        return;
+    }
+
+    // ✍️ CAS 2 : signature canvas
+    const canvas = document.getElementById("signature-pad");
+    const dataURL = canvas.toDataURL();
+
+    fetch(`/api/signature/{{ data.dossier_id }}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+            signature: dataURL
+        })
+    })
+    .then(res => res.json())
+    .then(data => {
+        alert("Signature enregistrée !");
+        location.reload();
+    });
+}
+</script>
+
+</body>
+</html>

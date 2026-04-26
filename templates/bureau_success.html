@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>PV créé</title>
+</head>
+<body>
+
+<h1>PV prérempli créé</h1>
+
+<p><strong>Numéro PV :</strong> {{ numero_pv }}</p>
+
+<p><strong>QR utilisé :</strong> {{ qr_code_id }}</p>
+
+<p><strong>Lien de scan :</strong></p>
+<a href="{{ scan_url }}" target="_blank">{{ scan_url }}</a>
+
+<br><br>
+
+<p>Ce lien est celui utilisé par le QR code chantier.</p>
+
+<br><br>
+
+<a href="/bureau">Créer un autre PV</a>
+
+</body>
+</html>

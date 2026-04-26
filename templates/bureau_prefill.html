@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Pré-remplissage PV</title>
+</head>
+<body>
+
+<h1>Pré-remplissage PV (Bureau)</h1>
+
+<form method="post" action="/bureau/create">
+
+    <h2>Vérificateur</h2>
+    <h2>QR code chantier</h2>
+
+<input type="text" name="qr_code_id" placeholder="Numéro du QR code physique, ex: 45" required>
+
+    <select name="selected_verificateur_id" required>
+        <option value="">-- Choisir un vérificateur --</option>
+        {% for v in verificateurs %}
+        <option value="{{ v.id }}">
+            {{ v.nom_complet }} | Diplôme: {{ v.numero_diplome }} ({{ v.statut_label }})
+        </option>
+        {% endfor %}
+    </select>
+
+    <h2>Chantier</h2>
+
+    <input type="text" name="chantier" placeholder="Nom chantier"><br>
+    <input type="text" name="adresse" placeholder="Adresse"><br>
+
+    <h2>Entreprise utilisatrice</h2>
+
+    <input type="text" name="entreprise_utilisatrice" placeholder="Entreprise"><br>
+    <input type="text" name="contact_utilisatrice" placeholder="Contact"><br>
+    <input type="text" name="tel_utilisatrice" placeholder="Téléphone"><br>
+
+    <h2>Email destinataire</h2>
+
+    <input type="email" name="email_utilisatrice" placeholder="Email"><br>
+
+    <br><br>
+
+    <button type="submit">Créer PV + QR Code</button>
+
+</form>
+
+</body>
+</html>

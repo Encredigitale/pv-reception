@@ -12,6 +12,7 @@ import os
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from urllib.parse import quote_plus
 
 from fastapi import FastAPI, Request, Form, UploadFile, File, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -28,6 +29,11 @@ from openpyxl.drawing.xdr import XDRPositiveSize2D
 from openpyxl.utils.units import pixels_to_EMU
 
 from PIL import Image as PILImage
+
+try:
+    import qrcode
+except ImportError:
+    qrcode = None
 
 from database import init_db, insert_verificateur, get_all_verificateurs, search_verificateurs
 
@@ -90,6 +96,7 @@ SIGNATURES_DIR = BASE_DIR / "signatures"
 UPLOADS_DIR = BASE_DIR / "uploads"
 CARTES_DIR = UPLOADS_DIR / "cartes_identite"
 DIPLOMES_DIR = UPLOADS_DIR / "diplomes"
+QR_CODES_DIR = UPLOADS_DIR / "qr_codes"
 
 
 # =========================================================
@@ -104,6 +111,7 @@ for directory in [
     UPLOADS_DIR,
     CARTES_DIR,
     DIPLOMES_DIR,
+    QR_CODES_DIR,
 ]:
     directory.mkdir(parents=True, exist_ok=True)
 
@@ -1006,6 +1014,79 @@ def get_pvs_for_chantier(chantier_id: str) -> list:
     return sorted(pvs, key=lambda item: item.get("created_at", ""), reverse=True)
 
 
+def get_notifications_chantier(chantier_id: str) -> list:
+    chantier = get_chantier_by_id(chantier_id)
+    if not chantier:
+        return []
+
+    notifications = []
+    pvs = get_pvs_for_chantier(chantier_id)
+
+    if not pvs:
+        notifications.append({
+            "type": "warning",
+            "label": "Aucun PV de réception généré pour ce chantier",
+        })
+
+    for pv in pvs:
+        dossier_id = pv.get("dossier_id")
+        state_path = DATA_DIR / dossier_id / "state.json"
+        if not state_path.exists():
+            continue
+
+        data = load_json(state_path)
+        societes = data.get("societes_utilisatrices", [])
+        pending = [s for s in societes if not s.get("signed")]
+
+        if pending:
+            notifications.append({
+                "type": "danger",
+                "label": f"{len(pending)} signature(s) en attente pour le PV {pv.get('numero_pv')}",
+            })
+
+    if chantier.get("statut") == "archive":
+        notifications.append({
+            "type": "info",
+            "label": "Chantier archivé",
+        })
+
+    return notifications
+
+
+def get_global_notifications() -> list:
+    notifications = []
+    chantiers = load_list_json(ECHAFF_CHANTIERS_FILE)
+
+    for chantier in chantiers:
+        chantier_notifications = get_notifications_chantier(chantier.get("id", ""))
+        for notif in chantier_notifications:
+            notifications.append({
+                "chantier_id": chantier.get("id"),
+                "chantier_nom": chantier.get("nom"),
+                **notif,
+            })
+
+    return notifications
+
+
+def generate_qr_code_for_chantier(chantier_id: str) -> str:
+    if qrcode is None:
+        raise RuntimeError("Le package qrcode n'est pas installé. Ajoutez qrcode[pil] dans requirements.txt")
+
+    chantier = get_chantier_by_id(chantier_id)
+    if not chantier:
+        raise HTTPException(status_code=404, detail="Chantier introuvable")
+
+    qr_url = f"{APP_PUBLIC_URL}/qr/chantier/{chantier_id}"
+    filename = f"chantier_{chantier_id}.png"
+    output_path = QR_CODES_DIR / filename
+
+    img = qrcode.make(qr_url)
+    img.save(output_path)
+
+    return f"/uploads/qr_codes/{filename}"
+
+
 @app.get("/dashboard", response_class=HTMLResponse)
 def dashboard_echaff(request: Request):
     """
@@ -1033,6 +1114,7 @@ def dashboard_echaff(request: Request):
             "nb_chantiers_archives": len(chantiers_archives),
             "chantiers": chantiers_actifs,
             "chantiers_archives": chantiers_archives,
+            "notifications": get_global_notifications(),
             "roles": ROLES_ECHAFF,
             "statuts_chantier": STATUTS_CHANTIER,
             "menu": [
@@ -1249,6 +1331,7 @@ def chantiers_liste(request: Request):
     for chantier in chantiers:
         chantier["pvs_reception"] = get_pvs_for_chantier(chantier.get("id", ""))
         chantier["nb_pvs"] = len(chantier["pvs_reception"])
+        chantier["notifications"] = get_notifications_chantier(chantier.get("id", ""))
 
     return templates.TemplateResponse(
         request=request,
@@ -1333,6 +1416,9 @@ def chantier_detail(request: Request, chantier_id: str):
             "request": request,
             "chantier": chantier,
             "pvs_reception": pvs_reception,
+            "notifications": get_notifications_chantier(chantier_id),
+            "qr_code_url": chantier.get("qr_code_url", ""),
+            "qr_public_url": f"{APP_PUBLIC_URL}/qr/chantier/{chantier_id}",
             "statuts": STATUTS_CHANTIER,
         }
     )
@@ -1400,6 +1486,44 @@ async def chantier_update(
     return RedirectResponse(f"/chantiers/{chantier_id}", status_code=303)
 
 
+@app.post("/chantiers/{chantier_id}/qr")
+def chantier_generate_qr(chantier_id: str):
+    chantier = get_chantier_by_id(chantier_id)
+    if not chantier:
+        raise HTTPException(status_code=404, detail="Chantier introuvable")
+
+    qr_code_url = generate_qr_code_for_chantier(chantier_id)
+    chantier["qr_code_url"] = qr_code_url
+    chantier["qr_public_url"] = f"{APP_PUBLIC_URL}/qr/chantier/{chantier_id}"
+    append_historique_chantier(chantier, "Génération du QR code chantier")
+    save_chantier(chantier)
+
+    return RedirectResponse(f"/chantiers/{chantier_id}", status_code=303)
+
+
+@app.get("/qr/chantier/{chantier_id}", response_class=HTMLResponse)
+def chantier_qr_public_page(request: Request, chantier_id: str):
+    chantier = get_chantier_by_id(chantier_id)
+    if not chantier:
+        raise HTTPException(status_code=404, detail="Chantier introuvable")
+
+    return templates.TemplateResponse(
+        request=request,
+        name="qr_chantier.html",
+        context={
+            "request": request,
+            "chantier": chantier,
+            "pvs_reception": get_pvs_for_chantier(chantier_id),
+            "notifications": get_notifications_chantier(chantier_id),
+        }
+    )
+
+
+@app.get("/notifications")
+def notifications():
+    return {"success": True, "notifications": get_global_notifications()}
+
+
 @app.post("/chantiers/{chantier_id}/archiver")
 def chantier_archive(chantier_id: str):
     chantier = get_chantier_by_id(chantier_id)
@@ -1433,6 +1557,7 @@ def chantier_pvs(chantier_id: str):
         "success": True,
         "chantier": chantier,
         "pvs_reception": get_pvs_for_chantier(chantier_id),
+        "notifications": get_notifications_chantier(chantier_id),
     }
 
 
@@ -1468,6 +1593,7 @@ def api_get_chantiers():
     for chantier in chantiers:
         chantier["pvs_reception"] = get_pvs_for_chantier(chantier.get("id", ""))
         chantier["nb_pvs"] = len(chantier["pvs_reception"])
+        chantier["notifications"] = get_notifications_chantier(chantier.get("id", ""))
     return {"success": True, "chantiers": chantiers}
 
 

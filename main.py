@@ -9,7 +9,6 @@ import io
 import traceback
 import subprocess
 import os
-import stat
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -30,10 +29,8 @@ from openpyxl.drawing.xdr import XDRPositiveSize2D
 from openpyxl.utils.units import pixels_to_EMU
 
 from PIL import Image as PILImage
-from cryptography.fernet import Fernet
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
-from base64 import urlsafe_b64encode
+import psycopg2
+from psycopg2.extras import RealDictCursor, Json
 
 try:
     import qrcode
@@ -52,9 +49,9 @@ APP_SECRET_KEY = os.getenv("APP_SECRET_KEY", "SUPER_SECRET_KEY_CHANGE_MOI")
 
 APP_PUBLIC_URL = os.getenv("APP_PUBLIC_URL", "http://127.0.0.1:8000").rstrip("/")
 
-# Clé utilisée pour chiffrer les fichiers plats.
-# En production Railway, définir SECURE_STORAGE_SECRET dans les variables d'environnement.
-SECURE_STORAGE_SECRET = os.getenv("SECURE_STORAGE_SECRET", APP_SECRET_KEY)
+# PostgreSQL
+# Sur Railway, définir DATABASE_URL avec l'URL PostgreSQL fournie par Railway.
+DATABASE_URL = os.getenv("DATABASE_URL", "")
 
 SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.office365.com")
 SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
@@ -99,7 +96,6 @@ ATTENTE_ALIGNMENT = Alignment(horizontal="center", vertical="center", wrap_text=
 BASE_DIR = Path(__file__).resolve().parent
 TEMPLATES_DIR = BASE_DIR / "templates"
 DATA_DIR = BASE_DIR / "data"
-SECURE_DATA_DIR = BASE_DIR / "secure_data"
 OUTPUT_DIR = BASE_DIR / "output"
 SIGNATURES_DIR = BASE_DIR / "signatures"
 
@@ -108,24 +104,6 @@ CARTES_DIR = UPLOADS_DIR / "cartes_identite"
 DIPLOMES_DIR = UPLOADS_DIR / "diplomes"
 QR_CODES_DIR = UPLOADS_DIR / "qr_codes"
 
-# =========================================================
-# INITIALISATION STOCKAGE FICHIER PLAT (PHASE 1)
-# =========================================================
-
-def ensure_secure_storage():
-    try:
-        # Création dossier racine
-        if not SECURE_DATA_DIR.exists():
-            SECURE_DATA_DIR.mkdir(parents=True, exist_ok=True)
-            print(f"[INIT] Création dossier secure_data : {SECURE_DATA_DIR}")
-
-        # Création sous-dossier métier
-        if not ECHAFF_DATA_DIR.exists():
-            ECHAFF_DATA_DIR.mkdir(parents=True, exist_ok=True)
-            print(f"[INIT] Création dossier echaff_phase1 : {ECHAFF_DATA_DIR}")
-
-    except Exception as e:
-        print("[ERREUR INIT STORAGE]", e)
 
 # =========================================================
 # INITIALISATION DOSSIERS
@@ -134,7 +112,6 @@ def ensure_secure_storage():
 for directory in [
     TEMPLATES_DIR,
     DATA_DIR,
-    SECURE_DATA_DIR,
     OUTPUT_DIR,
     SIGNATURES_DIR,
     UPLOADS_DIR,
@@ -166,9 +143,8 @@ app.mount("/data", StaticFiles(directory=str(DATA_DIR)), name="data")
 @app.on_event("startup")
 def startup_event():
     init_db()
+    init_app_db()
 
-    # >>> AJOUT PHASE 1
-    ensure_secure_storage()
 
 @app.get("/test")
 def test():
@@ -201,76 +177,130 @@ def find_excel_template() -> Path:
 
 
 # =========================================================
-# HELPERS - FICHIERS PLATS SECURISES
+# HELPERS - POSTGRESQL
 # =========================================================
 
-def get_secure_storage() -> Fernet:
+def get_db_connection():
+    if not DATABASE_URL:
+        raise RuntimeError(
+            "DATABASE_URL est manquant. Ajoute la variable DATABASE_URL dans Railway ou ton environnement local."
+        )
+    return psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
+
+
+def init_app_db():
     """
-    Génère une clé Fernet stable à partir de SECURE_STORAGE_SECRET.
-    Ne jamais changer SECURE_STORAGE_SECRET après mise en production,
-    sinon les anciens fichiers chiffrés ne seront plus lisibles.
+    Initialise les tables métier PostgreSQL.
+    Le script SQL complet est fourni séparément, mais cette fonction sécurise aussi le démarrage.
     """
-    secret = SECURE_STORAGE_SECRET.encode("utf-8")
-    salt = b"echaff-secure-flat-file-v1"
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS societes (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    nom TEXT NOT NULL DEFAULT '',
+                    siret TEXT DEFAULT '',
+                    adresse TEXT DEFAULT '',
+                    code_postal TEXT DEFAULT '',
+                    ville TEXT DEFAULT '',
+                    pays TEXT DEFAULT 'France',
+                    telephone TEXT DEFAULT '',
+                    email TEXT DEFAULT '',
+                    representant_nom TEXT DEFAULT '',
+                    representant_prenom TEXT DEFAULT '',
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                );
 
-    kdf = PBKDF2HMAC(
-        algorithm=hashes.SHA256(),
-        length=32,
-        salt=salt,
-        iterations=390000,
-    )
-    key = urlsafe_b64encode(kdf.derive(secret))
-    return Fernet(key)
+                CREATE TABLE IF NOT EXISTS profils (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    societe_id UUID REFERENCES societes(id) ON DELETE SET NULL,
+                    nom TEXT NOT NULL,
+                    prenom TEXT NOT NULL,
+                    email TEXT NOT NULL,
+                    telephone TEXT DEFAULT '',
+                    role TEXT NOT NULL,
+                    actif BOOLEAN NOT NULL DEFAULT TRUE,
+                    signature_electronique TEXT DEFAULT '',
+                    certification JSONB NOT NULL DEFAULT '{}'::jsonb,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                );
+
+                CREATE TABLE IF NOT EXISTS chantiers (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    societe_id UUID REFERENCES societes(id) ON DELETE SET NULL,
+                    nom TEXT NOT NULL,
+                    reference_interne TEXT UNIQUE NOT NULL,
+                    adresse_complete TEXT DEFAULT '',
+                    batiment_zone_etage_secteur TEXT DEFAULT '',
+                    client_maitre_ouvrage TEXT DEFAULT '',
+                    date_debut DATE NULL,
+                    date_fin_estimee DATE NULL,
+                    date_fin_reelle DATE NULL,
+                    statut TEXT NOT NULL DEFAULT 'brouillon',
+                    societe_echafaudage_responsable TEXT DEFAULT '',
+                    societes_utilisatrices_autorisees JSONB NOT NULL DEFAULT '[]'::jsonb,
+                    documents_associes JSONB NOT NULL DEFAULT '[]'::jsonb,
+                    historique JSONB NOT NULL DEFAULT '[]'::jsonb,
+                    qr_token TEXT UNIQUE,
+                    qr_code_url TEXT DEFAULT '',
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                );
+
+                CREATE TABLE IF NOT EXISTS pv_reception (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    dossier_id TEXT UNIQUE NOT NULL,
+                    numero_pv TEXT NOT NULL,
+                    chantier_id UUID REFERENCES chantiers(id) ON DELETE SET NULL,
+                    chantier_nom TEXT DEFAULT '',
+                    statut_document TEXT NOT NULL DEFAULT 'pv_reception',
+                    excel_file TEXT DEFAULT '',
+                    pdf_file TEXT DEFAULT '',
+                    json_file TEXT DEFAULT '',
+                    client_signature_url TEXT DEFAULT '',
+                    data JSONB NOT NULL DEFAULT '{}'::jsonb,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                );
+
+                CREATE TABLE IF NOT EXISTS historique_actions (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    societe_id UUID REFERENCES societes(id) ON DELETE SET NULL,
+                    chantier_id UUID REFERENCES chantiers(id) ON DELETE SET NULL,
+                    pv_id UUID REFERENCES pv_reception(id) ON DELETE SET NULL,
+                    type_action TEXT NOT NULL,
+                    description TEXT DEFAULT '',
+                    auteur TEXT DEFAULT 'system',
+                    metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                );
+            """)
+            conn.commit()
 
 
-def secure_write_json(path: Path, data) -> None:
-    """
-    Écrit un fichier JSON chiffré avec écriture atomique.
-    Le fichier final n'est pas lisible en clair sur le disque.
-    """
-    path.parent.mkdir(parents=True, exist_ok=True)
-
-    payload = json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")
-    encrypted = get_secure_storage().encrypt(payload)
-
-    tmp_path = path.with_suffix(path.suffix + ".tmp")
-    with tmp_path.open("wb") as f:
-        f.write(encrypted)
-
+def parse_date_or_none(value: str | None):
+    if not value:
+        return None
     try:
-        os.chmod(tmp_path, stat.S_IRUSR | stat.S_IWUSR)
+        return datetime.strptime(value, "%Y-%m-%d").date()
     except Exception:
-        pass
-
-    tmp_path.replace(path)
+        return None
 
 
-def secure_read_json(path: Path, default):
-    """
-    Lit un fichier JSON chiffré.
-    Retourne default si le fichier n'existe pas.
-    """
-    if not path.exists():
-        return default
+def get_or_create_main_societe_id() -> str | None:
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT id FROM societes ORDER BY created_at ASC LIMIT 1")
+            row = cur.fetchone()
+            if row:
+                return str(row["id"])
 
-    with path.open("rb") as f:
-        encrypted = f.read()
-
-    decrypted = get_secure_storage().decrypt(encrypted)
-    return json.loads(decrypted.decode("utf-8"))
-
-
-def secure_backup_file(path: Path) -> None:
-    """
-    Crée une sauvegarde chiffrée avant écrasement, utile en cas d'erreur humaine.
-    """
-    if not path.exists():
-        return
-
-    backup_dir = path.parent / "backups"
-    backup_dir.mkdir(parents=True, exist_ok=True)
-    backup_path = backup_dir / f"{path.stem}_{datetime.now().strftime('%Y%m%d_%H%M%S')}{path.suffix}"
-    shutil.copy2(path, backup_path)
+            cur.execute("INSERT INTO societes (nom) VALUES ('') RETURNING id")
+            new_row = cur.fetchone()
+            conn.commit()
+            return str(new_row["id"])
 
 
 # =========================================================
@@ -955,6 +985,8 @@ def regenerate_pv_files(dossier_data: dict) -> dict:
     dossier_id = dossier_data["dossier_id"]
     paths = build_paths_for_dossier(dossier_id)
 
+    # On conserve le JSON de travail pour compatibilité avec l'existant.
+    # Les données métier sont aussi sauvegardées dans PostgreSQL via save_pv_reception_to_db.
     save_json(paths["json_path"], dossier_data)
 
     regenerate_excel_from_data(
@@ -971,11 +1003,14 @@ def regenerate_pv_files(dossier_data: dict) -> dict:
         print("Erreur export PDF :", e)
         pdf_generated = False
 
-    return {
+    generated = {
         "json_path": paths["json_path"],
         "xlsx_path": paths["xlsx_path"],
         "pdf_path": paths["pdf_path"] if pdf_generated else None,
     }
+
+    save_pv_reception_to_db(dossier_data, generated)
+    return generated
 
 
 # =========================================================
@@ -984,14 +1019,11 @@ def regenerate_pv_files(dossier_data: dict) -> dict:
 # Objectif : informations société, profils société, chantiers société
 # =========================================================
 
-# Les données métier phase 1 sont stockées dans des fichiers plats chiffrés.
-# Ce dossier n'est PAS monté en StaticFiles, contrairement à /data, /output ou /uploads.
-ECHAFF_DATA_DIR = SECURE_DATA_DIR / "echaff_phase1"
-ECHAFF_DATA_DIR.mkdir(parents=True, exist_ok=True)
-
-ECHAFF_SOCIETE_FILE = ECHAFF_DATA_DIR / "societe.secure"
-ECHAFF_PROFILS_FILE = ECHAFF_DATA_DIR / "profils.secure"
-ECHAFF_CHANTIERS_FILE = ECHAFF_DATA_DIR / "chantiers.secure"
+# Compatibilité interne : ces constantes restent en place pour ne pas casser la structure.
+# Elles ne pointent plus vers des fichiers : elles servent de clés logiques pour les helpers PostgreSQL.
+ECHAFF_SOCIETE_FILE = Path("postgres://societe")
+ECHAFF_PROFILS_FILE = Path("postgres://profils")
+ECHAFF_CHANTIERS_FILE = Path("postgres://chantiers")
 
 
 ROLES_ECHAFF = [
@@ -1015,21 +1047,164 @@ STATUTS_CHANTIER = [
 
 
 def load_list_json(path: Path) -> list:
-    return secure_read_json(path, [])
+    key = str(path)
+
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            if key == str(ECHAFF_PROFILS_FILE):
+                cur.execute("""
+                    SELECT p.*, s.nom AS societe
+                    FROM profils p
+                    LEFT JOIN societes s ON s.id = p.societe_id
+                    ORDER BY p.created_at DESC
+                """)
+                rows = cur.fetchall()
+                return [dict(row) for row in rows]
+
+            if key == str(ECHAFF_CHANTIERS_FILE):
+                cur.execute("""
+                    SELECT c.*, s.nom AS societe_nom
+                    FROM chantiers c
+                    LEFT JOIN societes s ON s.id = c.societe_id
+                    ORDER BY c.created_at DESC
+                """)
+                rows = cur.fetchall()
+                return [dict(row) for row in rows]
+
+    return []
 
 
 def save_list_json(path: Path, data: list) -> None:
-    secure_backup_file(path)
-    secure_write_json(path, data)
+    key = str(path)
+    societe_id = get_or_create_main_societe_id()
+
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            if key == str(ECHAFF_PROFILS_FILE):
+                cur.execute("DELETE FROM profils")
+                for item in data:
+                    cur.execute("""
+                        INSERT INTO profils (
+                            id, societe_id, nom, prenom, email, telephone, role, actif,
+                            signature_electronique, certification, created_at, updated_at
+                        ) VALUES (
+                            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, COALESCE(%s::timestamptz, NOW()), NOW()
+                        )
+                    """, (
+                        item.get("id") or str(uuid4()),
+                        societe_id,
+                        item.get("nom", ""),
+                        item.get("prenom", ""),
+                        item.get("email", ""),
+                        item.get("telephone", ""),
+                        item.get("role", ""),
+                        bool(item.get("actif", True)),
+                        item.get("signature_electronique", ""),
+                        Json(item.get("certification", {}) or {}),
+                        item.get("created_at"),
+                    ))
+
+            elif key == str(ECHAFF_CHANTIERS_FILE):
+                cur.execute("DELETE FROM chantiers")
+                for item in data:
+                    cur.execute("""
+                        INSERT INTO chantiers (
+                            id, societe_id, nom, reference_interne, adresse_complete,
+                            batiment_zone_etage_secteur, client_maitre_ouvrage,
+                            date_debut, date_fin_estimee, date_fin_reelle, statut,
+                            societe_echafaudage_responsable, societes_utilisatrices_autorisees,
+                            documents_associes, historique, qr_token, qr_code_url,
+                            created_at, updated_at
+                        ) VALUES (
+                            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                            COALESCE(%s::timestamptz, NOW()), NOW()
+                        )
+                    """, (
+                        item.get("id") or str(uuid4()),
+                        societe_id,
+                        item.get("nom", ""),
+                        item.get("reference_interne") or generate_next_chantier_reference(),
+                        item.get("adresse_complete", ""),
+                        item.get("batiment_zone_etage_secteur", ""),
+                        item.get("client_maitre_ouvrage", ""),
+                        parse_date_or_none(item.get("date_debut")),
+                        parse_date_or_none(item.get("date_fin_estimee")),
+                        parse_date_or_none(item.get("date_fin_reelle")),
+                        item.get("statut", "brouillon"),
+                        item.get("societe_echafaudage_responsable", ""),
+                        Json(item.get("societes_utilisatrices_autorisees", []) or []),
+                        Json(item.get("documents_associes", []) or []),
+                        Json(item.get("historique", []) or []),
+                        item.get("qr_token"),
+                        item.get("qr_code_url", ""),
+                        item.get("created_at"),
+                    ))
+
+            conn.commit()
 
 
 def load_dict_json(path: Path) -> dict:
-    return secure_read_json(path, {})
+    key = str(path)
+    if key != str(ECHAFF_SOCIETE_FILE):
+        return {}
+
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT * FROM societes ORDER BY created_at ASC LIMIT 1")
+            row = cur.fetchone()
+            return dict(row) if row else {}
 
 
 def save_dict_json(path: Path, data: dict) -> None:
-    secure_backup_file(path)
-    secure_write_json(path, data)
+    key = str(path)
+    if key != str(ECHAFF_SOCIETE_FILE):
+        return
+
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT id FROM societes ORDER BY created_at ASC LIMIT 1")
+            row = cur.fetchone()
+
+            if row:
+                cur.execute("""
+                    UPDATE societes SET
+                        nom=%s, siret=%s, adresse=%s, code_postal=%s, ville=%s, pays=%s,
+                        telephone=%s, email=%s, representant_nom=%s, representant_prenom=%s,
+                        updated_at=NOW()
+                    WHERE id=%s
+                """, (
+                    data.get("nom", ""),
+                    data.get("siret", ""),
+                    data.get("adresse", ""),
+                    data.get("code_postal", ""),
+                    data.get("ville", ""),
+                    data.get("pays", "France"),
+                    data.get("telephone", ""),
+                    data.get("email", ""),
+                    data.get("representant_nom", ""),
+                    data.get("representant_prenom", ""),
+                    row["id"],
+                ))
+            else:
+                cur.execute("""
+                    INSERT INTO societes (
+                        nom, siret, adresse, code_postal, ville, pays, telephone, email,
+                        representant_nom, representant_prenom
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """, (
+                    data.get("nom", ""),
+                    data.get("siret", ""),
+                    data.get("adresse", ""),
+                    data.get("code_postal", ""),
+                    data.get("ville", ""),
+                    data.get("pays", "France"),
+                    data.get("telephone", ""),
+                    data.get("email", ""),
+                    data.get("representant_nom", ""),
+                    data.get("representant_prenom", ""),
+                ))
+
+            conn.commit()
 
 
 def append_historique_chantier(chantier: dict, action: str, auteur: str = "system") -> dict:
@@ -1075,42 +1250,52 @@ def delete_chantier_by_id(chantier_id: str) -> bool:
 
 
 def get_pvs_for_chantier(chantier_id: str) -> list:
-    """
-    Recherche les PV générés et associés à un chantier.
-    Association possible via state.json :
-    - chantier_id
-    - ou nom de chantier si l'ancien PV ne possède pas encore chantier_id
-    """
-    chantier = get_chantier_by_id(chantier_id)
-    if not chantier:
-        return []
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT dossier_id, numero_pv, chantier_nom AS chantier, created_at,
+                       excel_file, pdf_file, client_signature_url, statut_document AS statut
+                FROM pv_reception
+                WHERE chantier_id = %s
+                ORDER BY created_at DESC
+            """, (chantier_id,))
+            return [dict(row) for row in cur.fetchall()]
 
-    pvs = []
-    chantier_nom = chantier.get("nom", "")
 
-    for state_file in DATA_DIR.glob("pv_*/state.json"):
-        try:
-            data = load_json(state_file)
-        except Exception:
-            continue
+def save_pv_reception_to_db(dossier_data: dict, generated: dict) -> None:
+    chantier_id = dossier_data.get("chantier_id") or None
 
-        same_id = data.get("chantier_id") == chantier_id
-        same_name = chantier_nom and data.get("chantier") == chantier_nom
-
-        if same_id or same_name:
-            dossier_id = data.get("dossier_id") or state_file.parent.name
-            pvs.append({
-                "dossier_id": dossier_id,
-                "numero_pv": data.get("numero_pv", ""),
-                "chantier": data.get("chantier", ""),
-                "created_at": data.get("verification_datetime", data.get("created_at", "")),
-                "excel_file": f"/output/{dossier_id}.xlsx",
-                "pdf_file": f"/output/{dossier_id}.pdf",
-                "client_signature_url": f"/client-signature/{dossier_id}",
-                "statut": data.get("statut_document", "pv_reception"),
-            })
-
-    return sorted(pvs, key=lambda item: item.get("created_at", ""), reverse=True)
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO pv_reception (
+                    dossier_id, numero_pv, chantier_id, chantier_nom, statut_document,
+                    excel_file, pdf_file, json_file, client_signature_url, data, updated_at
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                ON CONFLICT (dossier_id) DO UPDATE SET
+                    numero_pv = EXCLUDED.numero_pv,
+                    chantier_id = EXCLUDED.chantier_id,
+                    chantier_nom = EXCLUDED.chantier_nom,
+                    statut_document = EXCLUDED.statut_document,
+                    excel_file = EXCLUDED.excel_file,
+                    pdf_file = EXCLUDED.pdf_file,
+                    json_file = EXCLUDED.json_file,
+                    client_signature_url = EXCLUDED.client_signature_url,
+                    data = EXCLUDED.data,
+                    updated_at = NOW()
+            """, (
+                dossier_data.get("dossier_id"),
+                dossier_data.get("numero_pv"),
+                chantier_id,
+                dossier_data.get("chantier", ""),
+                dossier_data.get("statut_document", "pv_reception"),
+                f"/output/{generated['xlsx_path'].name}" if generated.get("xlsx_path") else "",
+                f"/output/{generated['pdf_path'].name}" if generated.get("pdf_path") else "",
+                f"/data/{dossier_data.get('dossier_id')}/state.json",
+                f"/client-signature/{dossier_data.get('dossier_id')}",
+                Json(dossier_data),
+            ))
+            conn.commit()
 
 
 def get_notifications_chantier(chantier_id: str) -> list:

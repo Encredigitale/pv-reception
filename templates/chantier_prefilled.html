@@ -58,6 +58,8 @@
     <br><br>
 
     <button type="button" onclick="envoyerSignature()">Valider signature</button>
+    <button type="button" onclick="useSavedVerifierSignature()">
+    Utiliser la signature enregistrée</button>
 
 
 </form>
@@ -132,6 +134,44 @@ function envoyerSignature() {
         location.reload();
     });
 }
+</script>
+
+<script>
+
+// TON CODE EXISTANT ICI...
+
+async function useSavedVerifierSignature() {
+    const response = await fetch(`/api/verificateurs`);
+    const verificateurs = await response.json();
+
+    const emailVerificateur = "{{ data.verificateur_email }}";
+    const verificateur = verificateurs.find(v => v.email === emailVerificateur);
+
+    if (!verificateur || !verificateur.fichier_signature) {
+        alert("Aucune signature enregistrée pour ce vérificateur.");
+        return;
+    }
+
+    const imageResponse = await fetch(verificateur.fichier_signature);
+    const blob = await imageResponse.blob();
+
+    const reader = new FileReader();
+    reader.onloadend = async function () {
+        await fetch(`/api/signature/{{ data.dossier_id }}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                signature: reader.result
+            })
+        });
+
+        alert("Signature enregistrée utilisée !");
+        location.reload();
+    };
+
+    reader.readAsDataURL(blob);
+}
+
 </script>
 
 </body>

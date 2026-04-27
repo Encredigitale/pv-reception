@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<div class="topbar">
+    <h1>Signature vérificateur</h1>
+</div>
+
+<div class="card">
+
+    <h2>{{ verificateur.prenom }} {{ verificateur.nom }}</h2>
+    <p>Email : {{ verificateur.email }}</p>
+    <p>Diplôme : {{ verificateur.numero_diplome }}</p>
+
+    <hr>
+
+    <h3>Signature</h3>
+
+    {% if verificateur.fichier_signature %}
+        <p>
+            <strong>Signature actuelle :</strong>
+            <a href="/{{ verificateur.fichier_signature }}" target="_blank">Voir la signature</a>
+        </p>
+    {% endif %}
+
+    <form method="post" enctype="multipart/form-data">
+        <input type="file" name="signature">
+        <br><br>
+
+        <h3>Cache société</h3>
+
+        {% if verificateur.fichier_cachet %}
+            <p>
+                <strong>Cachet actuel :</strong>
+                <a href="/{{ verificateur.fichier_cachet }}" target="_blank">Voir le cachet</a>
+            </p>
+        {% endif %}
+
+        <input type="file" name="cachet">
+
+        <br><br>
+
+        <h3>Consentement RGPD</h3>
+
+    <div style="background:#f8f9fa; padding:15px; border-radius:8px; font-size:14px; line-height:1.5; margin-bottom:15px;">
+    <p>
+        Conformément au <strong>Règlement Général sur la Protection des Données (RGPD – UE 2016/679)</strong>,
+        nous vous informons que les données collectées dans le cadre de cette application, notamment votre signature
+        et votre cachet, sont utilisées exclusivement pour :
+    </p>
+
+    <ul>
+        <li>L’établissement et la validation des procès-verbaux de réception d’échafaudage</li>
+        <li>La traçabilité des contrôles et vérifications réglementaires</li>
+        <li>La conformité aux obligations légales en matière de sécurité des chantiers</li>
+    </ul>
+
+    <p>
+        Ces données sont conservées de manière sécurisée et ne sont en aucun cas transmises à des tiers sans votre accord.
+        Vous disposez d’un droit d’accès, de rectification et de suppression de vos données conformément à la réglementation en vigueur.
+    </p>
+
+    <p>
+        En validant ci-dessous, vous consentez explicitement à l’enregistrement et à l’utilisation de votre signature
+        dans ce cadre strictement professionnel.
+    </p>
+    <p style="background:#f8f9fa; padding:15px; border-radius:8px; font-size:14px; line-height:1.5; margin-bottom:15px;">
+    Horodatage automatique du consentement lors de la validation.
+    </p>
+
+    </div>
+
+    <label style="display:flex; align-items:center; gap:10px; font-size:16px; font-weight:600;">
+        <input type="checkbox" name="rgpd_consent" required style="width:20px; height:20px;">
+        J’accepte explicitement l’utilisation de ma signature et de mes données dans le cadre défini ci-dessus
+    </label>
+
+        <br><br>
+
+        <button class="btn">Enregistrer</button>
+    </form>
+
+</div>
+
+{% endblock %}

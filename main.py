@@ -132,6 +132,7 @@ templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 app.mount("/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")
 app.mount("/output", StaticFiles(directory=str(OUTPUT_DIR)), name="output")
 app.mount("/data", StaticFiles(directory=str(DATA_DIR)), name="data")
+app.mount("/signatures", StaticFiles(directory=str(SIGNATURES_DIR)), name="signatures")
 
 
 # =========================================================
@@ -2517,7 +2518,54 @@ def form_verificateur(request: Request):
         context={"request": request}
     )
 
+@app.get("/verificateurs/{verificateur_id}/signature", response_class=HTMLResponse)
+def verificateur_signature_form(request: Request, verificateur_id: int):
+    verificateur = None
 
+    for v in get_all_verificateurs():
+        if int(v["id"]) == int(verificateur_id):
+            verificateur = v
+            break
+
+    if not verificateur:
+        raise HTTPException(status_code=404, detail="Vérificateur introuvable")
+
+    return templates.TemplateResponse(
+        request=request,
+        name="verificateur_signature.html",
+        context={
+            "request": request,
+            "verificateur": verificateur
+        }
+    )
+
+
+@app.post("/verificateurs/{verificateur_id}/signature", response_class=HTMLResponse)
+async def verificateur_signature_save(
+    request: Request,
+    verificateur_id: int,
+    signature: UploadFile = File(...),
+    cachet: UploadFile = File(None),
+    rgpd_consent: str = Form("")
+):
+    if rgpd_consent != "on":
+        raise HTTPException(status_code=400, detail="Consentement RGPD obligatoire")
+
+    fichier_signature = save_upload_file(signature, SIGNATURES_DIR)
+
+    fichier_cachet = ""
+    if cachet and cachet.filename:
+        fichier_cachet = save_upload_file(cachet, SIGNATURES_DIR)
+
+    update_verificateur_signature_cachet(
+        verificateur_id=verificateur_id,
+        fichier_signature=fichier_signature,
+        fichier_cachet=fichier_cachet,
+        rgpd_consent=True,
+        rgpd_consent_date=datetime.now().isoformat()
+    )
+
+    return RedirectResponse("/admin/verificateurs", status_code=303)
 @app.post("/verificateurs/nouveau", response_class=HTMLResponse)
 async def create_verificateur(
     request: Request,
@@ -2658,6 +2706,13 @@ def api_verificateurs(q: str = ""):
             "date_obtention_diplome": v["date_obtention_diplome"],
             "date_echeance_diplome": v["date_echeance_diplome"],
             "fichier_diplome": f'/{v["fichier_diplome"]}' if v["fichier_diplome"] else "",
+
+            # 🔥 AJOUTS
+            "fichier_signature": f'/{v["fichier_signature"]}' if "fichier_signature" in v.keys() and v["fichier_signature"] else "",
+            "fichier_cachet": f'/{v["fichier_cachet"]}' if "fichier_cachet" in v.keys() and v["fichier_cachet"] else "",
+            "rgpd_consent": v["rgpd_consent"] if "rgpd_consent" in v.keys() else 0,
+            "rgpd_consent_date": v["rgpd_consent_date"] if "rgpd_consent_date" in v.keys() else "",
+
             "statut_label": statut["label"],
             "statut_color": statut["color"]
         })

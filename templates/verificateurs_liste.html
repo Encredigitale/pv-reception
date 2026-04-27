@@ -1,1 +1,33 @@
-{% extends "base.html" %}{% block content %}<div class="topbar"><div><h1>Vérificateurs</h1></div><a class="btn" href="/verificateurs/nouveau">+ Nouveau</a></div><div class="card"><table><thead><tr><th>Nom</th><th>Email</th><th>Diplôme</th><th>Statut</th></tr></thead><tbody>{% for v in verificateurs %}<tr><td>{{ v.prenom }} {{ v.nom }}</td><td>{{ v.email }}</td><td>{{ v.numero_diplome }}</td><td><span class="badge">{{ v.statut_label }}</span></td></tr>{% else %}<tr><td colspan="4">Aucun vérificateur.</td></tr>{% endfor %}</tbody></table></div>{% endblock %}
+{% extends "base.html" %}{% block content %}<div class="topbar">
+    <div>
+        <h1>Vérificateurs</h1>
+    </div><a class="btn" href="/verificateurs/nouveau">+ Nouveau</a>
+</div>
+<div class="card">
+    <table>
+        <thead>
+            <tr>
+                <th>Nom</th>
+                <th>Email</th>
+                <th>Diplôme</th>
+                <th>Statut</th>
+                <th>ACTION</th>
+            </tr>
+        </thead>
+        <tbody>{% for v in verificateurs %}
+           <tr>
+                <td>{{ v.prenom }} {{ v.nom }}</td>
+                <td>{{ v.email }}</td>
+                <td>{{ v.numero_diplome }}</td>
+                <td><span class="badge">{{ v.statut_label }}</span></td>
+                <td>
+                    <a href="/verificateurs/{{ v.id }}/signature" class="btn">
+                        Signature
+                    </a>
+                </td>
+            </tr>
+            {% else %}<tr>
+                <td colspan="4">Aucun vérificateur.</td>
+            </tr>{% endfor %}</tbody>
+    </table>
+</div>{% endblock %}

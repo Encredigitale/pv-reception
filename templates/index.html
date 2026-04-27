@@ -91,6 +91,11 @@
   </div>
 
   <h2>Signature</h2>
+  <button type="button" class="btn" onclick="useSavedVerifierSignature()">
+    Utiliser la signature enregistrée
+  </button>
+
+  <br><br>
   <canvas id="signatureCanvas"></canvas>
   <button type="button" class="btn secondary" id="clearBtn">Effacer la signature</button>
 
@@ -156,5 +161,57 @@ function buildPayload(){
 }
 document.getElementById("previewJsonBtn").onclick=()=>{jsonPreview.style.display="block";jsonPreview.textContent=JSON.stringify(buildPayload(),null,2)}
 form.addEventListener("submit",async e=>{e.preventDefault();if(!selectedVerificateur){alert("Veuillez sélectionner un vérificateur.");return}if(selectedVerificateur.statut_color==="red"){alert("Diplôme expiré. Validation impossible.");return}if(selectedVerificateur.statut_color==="orange"&&!confirm("Diplôme à renouveler dans moins de 6 mois. Continuer ?"))return;const response=await fetch("/api/pv",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(buildPayload())});const result=await response.json();if(!response.ok||result.success===false){alert("Erreur : "+(result.error||"inconnue"));return}alert("PV généré avec succès !");if(result.pdf_file) window.open(`${window.location.origin}${result.pdf_file}`,"_blank")});
+async function useSavedVerifierSignature() {
+    const emailInput = document.getElementById("verificateur_email");
+
+    if (!emailInput || !emailInput.value) {
+        alert("Aucun vérificateur sélectionné.");
+        return;
+    }
+
+    const emailVerificateur = emailInput.value.trim();
+
+    const response = await fetch("/api/verificateurs");
+    const verificateurs = await response.json();
+
+    const verificateur = verificateurs.find(v => v.email === emailVerificateur);
+
+    if (!verificateur) {
+        alert("Vérificateur introuvable.");
+        return;
+    }
+
+    if (!verificateur.rgpd_consent) {
+        alert("Le consentement RGPD du vérificateur n'est pas enregistré.");
+        return;
+    }
+
+    if (!verificateur.fichier_signature) {
+        alert("Aucune signature enregistrée pour ce vérificateur.");
+        return;
+    }
+
+    const img = new Image();
+
+    img.onload = function () {
+        const canvas = document.getElementById("signatureCanvas");
+        const ctx = canvas.getContext("2d");
+
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        const ratio = Math.min(canvas.width / img.width, canvas.height / img.height);
+        const width = img.width * ratio;
+        const height = img.height * ratio;
+
+        const x = (canvas.width - width) / 2;
+        const y = (canvas.height - height) / 2;
+
+        ctx.drawImage(img, x, y, width, height);
+
+        alert("Signature enregistrée chargée.");
+    };
+
+    img.src = verificateur.fichier_signature;
+}
 </script>
 {% endblock %}

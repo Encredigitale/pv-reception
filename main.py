@@ -36,8 +36,6 @@ try:
 except ImportError:
     qrcode = None
 
-from database import init_db, insert_verificateur, get_all_verificateurs, search_verificateurs
-
 
 # =========================================================
 # CONFIG
@@ -138,39 +136,16 @@ app.mount("/data", StaticFiles(directory=str(DATA_DIR)), name="data")
 # =========================================================
 # STARTUP
 # =========================================================
-from database import init_db
 
+@app.on_event("startup")
 def startup_event():
     try:
         init_db()
+        init_app_db()
         print("DB OK")
     except Exception as e:
         print("ERREUR INIT DB :", e)
-
-
-@app.get("/test")
-def test():
-    return {"status": "ok"}
-
-# AJOUT TEMPORAIRE
-@app.get("/debug/db")
-def debug_db():
-    import sqlite3
-    from pathlib import Path
-
-    db_path = Path("./echaff.db").resolve()
-
-    conn = sqlite3.connect(db_path)
-    cur = conn.cursor()
-    cur.execute("SELECT name FROM sqlite_master WHERE type='table'")
-    tables = [row[0] for row in cur.fetchall()]
-    conn.close()
-
-    return {
-        "db_path": str(db_path),
-        "exists": db_path.exists(),
-        "tables": tables
-    }
+        raise e
 
 # =========================================================
 # DETECTION DU MODELE EXCEL
@@ -313,6 +288,22 @@ def init_app_db():
                 metadata TEXT NOT NULL DEFAULT '{}',
                 created_at TEXT NOT NULL
             );
+CREATE TABLE IF NOT EXISTS verificateurs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    nom TEXT NOT NULL,
+    prenom TEXT NOT NULL,
+    email TEXT NOT NULL,
+    telephone TEXT DEFAULT '',
+    numero_diplome TEXT NOT NULL,
+    date_obtention_diplome TEXT NOT NULL,
+    date_echeance_diplome TEXT NOT NULL,
+    fichier_carte_recto TEXT DEFAULT '',
+    fichier_carte_verso TEXT DEFAULT '',
+    fichier_diplome TEXT DEFAULT '',
+    actif INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
 
             CREATE INDEX IF NOT EXISTS idx_profils_role ON profils(role);
             CREATE INDEX IF NOT EXISTS idx_chantiers_reference ON chantiers(reference_interne);
@@ -1060,10 +1051,10 @@ def regenerate_pv_files(dossier_data: dict) -> dict:
 # =========================================================
 
 # Compatibilité interne : ces constantes restent en place pour ne pas casser la structure.
-# Elles ne pointent plus vers des fichiers : elles servent de clés logiques pour les helpers PostgreSQL.
-ECHAFF_SOCIETE_FILE = Path("postgres://societe")
-ECHAFF_PROFILS_FILE = Path("postgres://profils")
-ECHAFF_CHANTIERS_FILE = Path("postgres://chantiers")
+# Clés logiques internes pour router les helpers SQLite.
+ECHAFF_SOCIETE_FILE = Path("sqlite://societe")
+ECHAFF_PROFILS_FILE = Path("sqlite://profils")
+ECHAFF_CHANTIERS_FILE = Path("sqlite://chantiers")
 
 
 ROLES_ECHAFF = [

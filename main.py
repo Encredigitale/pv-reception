@@ -138,10 +138,11 @@ app.mount("/data", StaticFiles(directory=str(DATA_DIR)), name="data")
 # =========================================================
 # STARTUP
 # =========================================================
-from database import init_db
 
 @app.on_event("startup")
 def startup_event():
+    init_db()
+    init_app_db()
 
 
 @app.get("/test")

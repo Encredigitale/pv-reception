@@ -30,7 +30,7 @@ from openpyxl.utils.units import pixels_to_EMU
 
 from PIL import Image as PILImage
 import sqlite3
-
+from database import init_db, insert_verificateur, get_all_verificateurs, search_verificateurs
 try:
     import qrcode
 except ImportError:
@@ -146,6 +146,8 @@ def startup_event():
     except Exception as e:
         print("ERREUR INIT DB :", e)
         raise e
+
+
 
 # =========================================================
 # DETECTION DU MODELE EXCEL

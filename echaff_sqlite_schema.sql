@@ -90,7 +90,25 @@ CREATE TABLE IF NOT EXISTS historique_actions (
     created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS verificateurs (
+    id TEXT PRIMARY KEY,
+    nom TEXT NOT NULL DEFAULT '',
+    prenom TEXT NOT NULL DEFAULT '',
+    email TEXT NOT NULL DEFAULT '',
+    telephone TEXT DEFAULT '',
+    numero_diplome TEXT DEFAULT '',
+    date_obtention_diplome TEXT DEFAULT '',
+    date_echeance_diplome TEXT DEFAULT '',
+    fichier_carte_recto TEXT DEFAULT '',
+    fichier_carte_verso TEXT DEFAULT '',
+    fichier_diplome TEXT DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_profils_role ON profils(role);
 CREATE INDEX IF NOT EXISTS idx_chantiers_reference ON chantiers(reference_interne);
 CREATE INDEX IF NOT EXISTS idx_chantiers_statut ON chantiers(statut);
 CREATE INDEX IF NOT EXISTS idx_pv_chantier_id ON pv_reception(chantier_id);
+CREATE INDEX IF NOT EXISTS idx_verificateurs_nom ON verificateurs(nom);
+CREATE INDEX IF NOT EXISTS idx_verificateurs_email ON verificateurs(email);

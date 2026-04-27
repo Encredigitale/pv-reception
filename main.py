@@ -142,13 +142,31 @@ from database import init_db
 
 @app.on_event("startup")
 def startup_event():
-    init_db()
 
 
 @app.get("/test")
 def test():
     return {"status": "ok"}
 
+# AJOUT TEMPORAIRE
+@app.get("/debug/db")
+def debug_db():
+    import sqlite3
+    from pathlib import Path
+
+    db_path = Path("./echaff.db").resolve()
+
+    conn = sqlite3.connect(db_path)
+    cur = conn.cursor()
+    cur.execute("SELECT name FROM sqlite_master WHERE type='table'")
+    tables = [row[0] for row in cur.fetchall()]
+    conn.close()
+
+    return {
+        "db_path": str(db_path),
+        "exists": db_path.exists(),
+        "tables": tables
+    }
 
 # =========================================================
 # DETECTION DU MODELE EXCEL

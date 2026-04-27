@@ -140,8 +140,12 @@ app.mount("/data", StaticFiles(directory=str(DATA_DIR)), name="data")
 # =========================================================
 from database import init_db
 
-@app.on_event("startup")
 def startup_event():
+    try:
+        init_db()
+        print("DB OK")
+    except Exception as e:
+        print("ERREUR INIT DB :", e)
 
 
 @app.get("/test")

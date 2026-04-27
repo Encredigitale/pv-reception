@@ -1,4 +1,4 @@
-from database import init_db, insert_verificateur, get_all_verificateurs, search_verificateurs
+from database import insert_verificateur, get_all_verificateurs, search_verificateurs
 from pathlib import Path
 from datetime import datetime, date
 from uuid import uuid4
@@ -141,12 +141,12 @@ app.mount("/data", StaticFiles(directory=str(DATA_DIR)), name="data")
 @app.on_event("startup")
 def startup_event():
     try:
-        init_db()
         init_app_db()
         print("DB OK")
     except Exception as e:
         print("ERREUR INIT DB :", e)
         raise e
+
 
 
 

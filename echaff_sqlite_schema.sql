@@ -89,8 +89,24 @@ CREATE TABLE IF NOT EXISTS historique_actions (
     metadata TEXT NOT NULL DEFAULT '{}',
     created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS verificateurs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    nom TEXT NOT NULL,
+    prenom TEXT NOT NULL,
+    email TEXT NOT NULL,
+    telephone TEXT DEFAULT '',
+    numero_diplome TEXT NOT NULL,
+    date_obtention_diplome TEXT NOT NULL,
+    date_echeance_diplome TEXT NOT NULL,
+    fichier_carte_recto TEXT DEFAULT '',
+    fichier_carte_verso TEXT DEFAULT '',
+    fichier_diplome TEXT DEFAULT '',
+    actif INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
 
 CREATE INDEX IF NOT EXISTS idx_profils_role ON profils(role);
 CREATE INDEX IF NOT EXISTS idx_chantiers_reference ON chantiers(reference_interne);
 CREATE INDEX IF NOT EXISTS idx_chantiers_statut ON chantiers(statut);
 CREATE INDEX IF NOT EXISTS idx_pv_chantier_id ON pv_reception(chantier_id);
+

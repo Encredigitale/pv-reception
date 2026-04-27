@@ -1,11 +1,3 @@
--- =========================================================
--- ECHAFF - SQLite schema
--- Phase 1 MVP : une seule société
--- Fichier de base conseillé : echaff.db à la racine du projet
--- =========================================================
-
-PRAGMA foreign_keys = ON;
-
 CREATE TABLE IF NOT EXISTS societes (
     id TEXT PRIMARY KEY,
     nom TEXT NOT NULL DEFAULT '',
@@ -34,8 +26,7 @@ CREATE TABLE IF NOT EXISTS profils (
     signature_electronique TEXT DEFAULT '',
     certification TEXT NOT NULL DEFAULT '{}',
     created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL,
-    FOREIGN KEY (societe_id) REFERENCES societes(id)
+    updated_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS chantiers (
@@ -57,8 +48,7 @@ CREATE TABLE IF NOT EXISTS chantiers (
     qr_token TEXT UNIQUE,
     qr_code_url TEXT DEFAULT '',
     created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL,
-    FOREIGN KEY (societe_id) REFERENCES societes(id)
+    updated_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS pv_reception (
@@ -74,8 +64,7 @@ CREATE TABLE IF NOT EXISTS pv_reception (
     client_signature_url TEXT DEFAULT '',
     data TEXT NOT NULL DEFAULT '{}',
     created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL,
-    FOREIGN KEY (chantier_id) REFERENCES chantiers(id)
+    updated_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS historique_actions (
@@ -89,6 +78,7 @@ CREATE TABLE IF NOT EXISTS historique_actions (
     metadata TEXT NOT NULL DEFAULT '{}',
     created_at TEXT NOT NULL
 );
+
 CREATE TABLE IF NOT EXISTS verificateurs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     nom TEXT NOT NULL,
@@ -104,9 +94,3 @@ CREATE TABLE IF NOT EXISTS verificateurs (
     actif INTEGER NOT NULL DEFAULT 1,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
-
-CREATE INDEX IF NOT EXISTS idx_profils_role ON profils(role);
-CREATE INDEX IF NOT EXISTS idx_chantiers_reference ON chantiers(reference_interne);
-CREATE INDEX IF NOT EXISTS idx_chantiers_statut ON chantiers(statut);
-CREATE INDEX IF NOT EXISTS idx_pv_chantier_id ON pv_reception(chantier_id);
-

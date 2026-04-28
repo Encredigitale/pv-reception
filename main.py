@@ -1,4 +1,10 @@
-from database import init_db, insert_verificateur, get_all_verificateurs, search_verificateurs
+from database import (
+    init_db,
+    insert_verificateur,
+    get_all_verificateurs,
+    search_verificateurs,
+    update_verificateur_signature_cachet,
+)
 from pathlib import Path
 from datetime import datetime, date
 from uuid import uuid4
@@ -526,35 +532,28 @@ def insert_signature_fit_area(ws, cell_or_range: str, image_path: Path, padding_
 # =========================================================
 
 def export_excel_to_pdf(excel_path: Path, pdf_path: Path):
-    """
-    Conversion XLSX -> PDF via LibreOffice headless.
-    Nécessite LibreOffice installé sur Railway.
-    """
-    output_dir = pdf_path.parent
-    output_dir.mkdir(parents=True, exist_ok=True)
+    import win32com.client
 
-    cmd = [
-        "soffice",
-        "--headless",
-        "--convert-to", "pdf",
-        "--outdir", str(output_dir),
-        str(excel_path),
-    ]
+    excel_path = excel_path.resolve()
+    pdf_path = pdf_path.resolve()
 
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    excel = win32com.client.DispatchEx("Excel.Application")
+    excel.Visible = False
+    excel.DisplayAlerts = False
 
-    if result.returncode != 0:
-        raise RuntimeError(
-            f"Conversion PDF échouée : {result.stderr or result.stdout}"
-        )
+    try:
+        wb = excel.Workbooks.Open(str(excel_path))
+        ws = wb.Worksheets("Formulaire")
 
-    generated_pdf = output_dir / f"{excel_path.stem}.pdf"
+        ws.PageSetup.PrintArea = PRINT_AREA
+        ws.ExportAsFixedFormat(0, str(pdf_path))
 
-    if not generated_pdf.exists():
-        raise RuntimeError("Le PDF n'a pas été généré par LibreOffice")
+        wb.Close(SaveChanges=False)
+    finally:
+        excel.Quit()
 
-    if generated_pdf.resolve() != pdf_path.resolve():
-        generated_pdf.replace(pdf_path)
+    if not pdf_path.exists():
+        raise RuntimeError("Le PDF n'a pas été généré par Excel")
 
 
 def write_merged_cell(ws, cell_ref: str, value, font_size: int | None = None, bold: bool | None = None):
@@ -2338,7 +2337,6 @@ def home(request: Request):
         }
     )
 
-
 @app.post("/api/pv")
 async def create_or_regenerate_pv(request: Request):
     try:
@@ -2346,7 +2344,9 @@ async def create_or_regenerate_pv(request: Request):
         data = prepare_pv_payload(raw_data)
         generated = regenerate_pv_files(data)
 
-        emails = raw_data.get("emails_destinataires", "").strip()
+       # 🔴 MODE TEST EMAIL (à supprimer après démo)
+        emails = "equiprobat2009@gmail.com"
+
         if not emails:
             emails = "; ".join([
                 s.get("email", "").strip()
@@ -2358,23 +2358,34 @@ async def create_or_regenerate_pv(request: Request):
             pdf_url = f"{APP_PUBLIC_URL}/output/{generated['pdf_path'].name}"
             signature_url = f"{APP_PUBLIC_URL}/client-signature/{data['dossier_id']}"
 
+            chantier = data.get("chantier", "")
+            adresse = data.get("adresse", "")
+            numero = data.get("numero_pv", "")
+
+            objet = f"{chantier}_{adresse}_{numero}"
+
             contenu = f"""Bonjour,
 
-Veuillez trouver ci-dessous le PV de réception :
+Veuillez trouver ci-dessous le procès-verbal de réception d’échafaudage.
 
-PDF :
+Chantier : {chantier}
+Adresse : {adresse}
+
+Télécharger le PV :
 {pdf_url}
 
-Lien de vérification et signature :
+Signer le PV :
 {signature_url}
 
+Merci de compléter et signer le document.
+
 Cordialement,
-OMNILUX
+Plateforme OMNILUX
 """
 
             send_email(
                 destinataires=emails,
-                sujet=f"PV réception échafaudage n°{data['numero_pv']}",
+                sujet=objet,
                 contenu=contenu
             )
 
@@ -2392,6 +2403,7 @@ OMNILUX
     except Exception as e:
         traceback.print_exc()
         return {"success": False, "error": str(e)}
+
 
 
 # =========================================================

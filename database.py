@@ -21,6 +21,21 @@ def init_db():
     with get_db() as conn:
         with open(SCHEMA_PATH, "r", encoding="utf-8") as f:
             conn.executescript(f.read())
+        cur = conn.cursor()
+        cur.execute("PRAGMA table_info(verificateurs)")
+        existing_columns = [row["name"] for row in cur.fetchall()]
+
+        if "fichier_signature" not in existing_columns:
+            cur.execute("ALTER TABLE verificateurs ADD COLUMN fichier_signature TEXT DEFAULT ''")
+
+        if "fichier_cachet" not in existing_columns:
+            cur.execute("ALTER TABLE verificateurs ADD COLUMN fichier_cachet TEXT DEFAULT ''")
+
+        if "rgpd_consent" not in existing_columns:
+            cur.execute("ALTER TABLE verificateurs ADD COLUMN rgpd_consent INTEGER NOT NULL DEFAULT 0")
+
+        if "rgpd_consent_date" not in existing_columns:
+            cur.execute("ALTER TABLE verificateurs ADD COLUMN rgpd_consent_date TEXT")    
         conn.commit()
 
     print(f"[OK] Base SQLite initialisée : {DB_PATH}")
@@ -101,6 +116,14 @@ def get_all_verificateurs():
     return fetch_all(query)
 
 
+def fetch_all(query, params=()):
+    with get_db() as conn:
+        cur = conn.cursor()
+        cur.execute(query, params)
+        rows = cur.fetchall()
+        return rows
+
+
 def search_verificateurs(q=""):
     q = f"%{q}%"
 
@@ -118,27 +141,8 @@ def search_verificateurs(q=""):
         LIMIT 20
     """
 
-<<<<<<< HEAD
     return fetch_all(query, (q, q, q, q))
-=======
-    if query.strip():
-        sql += """
-            AND (
-                nom LIKE ?
-                OR prenom LIKE ?
-                OR email LIKE ?
-                OR numero_diplome LIKE ?
-            )
-        """
-        q = f"%{query.strip()}%"
-        params.extend([q, q, q, q])
 
-    sql += " ORDER BY nom ASC, prenom ASC LIMIT 20"
-
-    cursor.execute(sql, params)
-    rows = cursor.fetchall()
-    conn.close()
-    return rows
 
 def update_verificateur_signature_cachet(
     verificateur_id,
@@ -147,10 +151,7 @@ def update_verificateur_signature_cachet(
     rgpd_consent,
     rgpd_consent_date
 ):
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    cursor.execute("""
+    query = """
         UPDATE verificateurs
         SET
             fichier_signature = ?,
@@ -158,7 +159,9 @@ def update_verificateur_signature_cachet(
             rgpd_consent = ?,
             rgpd_consent_date = ?
         WHERE id = ?
-    """, (
+    """
+
+    execute(query, (
         fichier_signature,
         fichier_cachet,
         1 if rgpd_consent else 0,
@@ -166,10 +169,7 @@ def update_verificateur_signature_cachet(
         verificateur_id
     ))
 
-    conn.commit()
-    conn.close()
 
 if __name__ == "__main__":
     init_db()
     print(f"Base de données initialisée : {DB_PATH}")
->>>>>>> d9698d6 (Ajout signature vérificateur + RGPD + affichage signature + intégration canvas)
